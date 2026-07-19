@@ -336,9 +336,13 @@ function rendreHistorique(donnees) {
   archiver.textContent = 'Archiver';
   archiver.addEventListener('click', async () => {
     if (!confirm(`Archiver « ${donnees.nom} » ? L'historique est conservé.`)) return;
-    await envoyer(`/api/habits/${donnees.id}/archive`, {});
-    fermerPopup();
-    await recharger();
+    try {
+      await envoyer(`/api/habits/${donnees.id}/archive`, {});
+      fermerPopup();
+      await recharger();
+    } catch (err) {
+      signaler(err.message);
+    }
   });
 
   actions.append(modifier, archiver);
@@ -346,6 +350,7 @@ function rendreHistorique(donnees) {
 }
 
 function formulaireEdition(donnees) {
+  if (popupContenu.querySelector('.formulaire')) return;
   const form = document.createElement('form');
   form.className = 'formulaire';
 
@@ -381,7 +386,7 @@ function formulaireEdition(donnees) {
   annuler.type = 'button';
   annuler.className = 'btn-discret';
   annuler.textContent = 'Annuler';
-  annuler.addEventListener('click', () => window.rafraichirHistorique());
+  annuler.addEventListener('click', () => { window.rafraichirHistorique().catch((err) => signaler(err.message)); });
   boutons.append(valider, annuler);
 
   form.append(nom, couleur.zone, objectif, avertissement, boutons);
