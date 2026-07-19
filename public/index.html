@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Greene Habits</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Greene Habits</h1>
+    <span id="date-jour"></span>
+  </header>
+
+  <main id="joueurs"></main>
+
+  <div class="pied">
+    <button id="btn-joueur" class="btn-principal">+ joueur</button>
+  </div>
+
+  <div id="popup" class="popup cache">
+    <div class="popup-boite">
+      <button id="popup-fermer" class="popup-croix" aria-label="Fermer">&times;</button>
+      <div id="popup-contenu"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast cache"></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
