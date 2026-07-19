@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb, getPlayers, getHabits, COULEURS } from '../src/db.js';
+import {
+  openDb, getPlayers, getHabits, COULEURS, createPlayer, createHabit, updateHabit,
+  archiveHabit, getCounts, toggle, refFor
+} from '../src/db.js';
 import { todayISO, mondayOf, addDays } from '../src/dates.js';
 
 test('openDb crée le schéma et amorce Anatole', () => {
@@ -44,11 +47,6 @@ test('le schéma refuse deux entries sur la même habitude et la même date', ()
     db.prepare(`INSERT INTO entries (habit_id, date_ref, count) VALUES (1, '2026-07-19', 1)`).run();
   });
 });
-
-import {
-  createPlayer, createHabit, updateHabit, archiveHabit,
-  getCounts, toggle, refFor
-} from '../src/db.js';
 
 function baseAvecHabitude(surcharges = {}) {
   const db = openDb(':memory:');
@@ -98,6 +96,20 @@ test('updateHabit ignore toute tentative de changer le type', () => {
     nom: 'Lecture', couleur: '#4C6FFF', objectif: 1, type: 'weekly'
   });
   assert.equal(maj.type, 'daily');
+});
+
+test('createHabit refuse un objectif < 1 pour une weekly', () => {
+  const db = openDb(':memory:');
+  assert.throws(() => createHabit(db, {
+    player_id: 1, nom: 'Salle', type: 'weekly', couleur: '#4C6FFF', objectif: 0
+  }), /objectif/i);
+});
+
+test('updateHabit refuse un objectif < 1 pour une weekly', () => {
+  const { db, habit } = baseAvecHabitude({ type: 'weekly', objectif: 2 });
+  assert.throws(() => updateHabit(db, habit.id, {
+    nom: 'Salle', couleur: '#22C55E', objectif: 0
+  }), /objectif/i);
 });
 
 test('archiveHabit retire l\'habitude sans supprimer la ligne', () => {

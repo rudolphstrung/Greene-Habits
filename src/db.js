@@ -91,7 +91,13 @@ export function createHabit(db, { player_id, nom, type, couleur, objectif }) {
     throw new Error('Couleur hors palette');
   }
   // Une daily est binaire par nature : son objectif vaut toujours 1.
-  const cible = type === 'daily' ? 1 : Math.max(1, parseInt(objectif, 10) || 1);
+  let cible;
+  if (type === 'daily') {
+    cible = 1;
+  } else {
+    cible = parseInt(objectif, 10);
+    if (!Number.isInteger(cible) || cible < 1) throw new Error('Objectif invalide');
+  }
 
   const { lastInsertRowid } = db.prepare(
     `INSERT INTO habits (player_id, nom, type, couleur, objectif, created_at)
@@ -116,7 +122,13 @@ export function updateHabit(db, id, { nom, couleur, objectif }) {
   if (!COULEURS.includes(couleur)) throw new Error('Couleur hors palette');
   // Le type reste figé : le changer rendrait l'historique des date_ref
   // incohérent entre lecture journalière et hebdomadaire.
-  const cible = habit.type === 'daily' ? 1 : Math.max(1, parseInt(objectif, 10) || 1);
+  let cible;
+  if (habit.type === 'daily') {
+    cible = 1;
+  } else {
+    cible = parseInt(objectif, 10);
+    if (!Number.isInteger(cible) || cible < 1) throw new Error('Objectif invalide');
+  }
 
   db.prepare('UPDATE habits SET nom = ?, couleur = ?, objectif = ? WHERE id = ?')
     .run(propre, couleur, cible, id);
