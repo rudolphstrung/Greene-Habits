@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   openDb, getPlayers, getHabits, getHabit, getCounts, COULEURS,
   createPlayer, createHabit, updateHabit, archiveHabit, toggle, refFor
@@ -185,7 +185,7 @@ export function createServer(db) {
 }
 
 // Démarrage réel uniquement hors tests.
-if (process.env.NODE_ENV !== 'test' && import.meta.url === `file://${process.argv[1]}`) {
+if (process.env.NODE_ENV !== 'test' && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = process.env.PORT || 3000;
   createServer(openDb()).listen(port, () => {
     console.log(`Greene Habits écoute sur le port ${port}`);
