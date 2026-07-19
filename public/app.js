@@ -255,6 +255,180 @@ document.getElementById('btn-joueur').addEventListener('click', async () => {
 });
 
 window.GreeneHabits = { recharger, signaler, selecteurCouleur, envoyer };
-window.ouvrirHistorique = () => {}; // remplacé en Task 7
+
+// --- Popup d'historique ---------------------------------------------------
+
+const popup = document.getElementById('popup');
+const popupContenu = document.getElementById('popup-contenu');
+let habitOuverte = null;
+
+function grouperParMois(points) {
+  const mois = new Map();
+  points.forEach((p) => {
+    const cle = p.ref.slice(0, 7);
+    if (!mois.has(cle)) mois.set(cle, []);
+    mois.get(cle).push(p);
+  });
+  return [...mois.entries()];
+}
+
+function nomDuMois(cle) {
+  return new Date(`${cle}-01T12:00:00Z`)
+    .toLocaleDateString('fr-CH', { month: 'long', year: 'numeric' });
+}
+
+function bloqueStat(valeur, label) {
+  const bloc = document.createElement('div');
+  const v = document.createElement('div');
+  v.className = 'stat-valeur';
+  v.textContent = valeur;
+  const l = document.createElement('div');
+  l.className = 'stat-label';
+  l.textContent = label;
+  bloc.append(v, l);
+  return bloc;
+}
+
+function rendreHistorique(donnees) {
+  popupContenu.textContent = '';
+
+  const titre = document.createElement('h2');
+  titre.textContent = donnees.nom;
+  titre.style.margin = '0';
+  popupContenu.appendChild(titre);
+
+  const stats = document.createElement('div');
+  stats.className = 'stats';
+  stats.append(
+    bloqueStat(`🔥 ${donnees.streak}`, 'streak'),
+    bloqueStat(donnees.record, 'record'),
+    bloqueStat(`${donnees.taux}%`, 'réussite')
+  );
+  popupContenu.appendChild(stats);
+
+  grouperParMois(donnees.points).forEach(([cle, points]) => {
+    const mois = document.createElement('div');
+    mois.className = 'mois';
+
+    const nom = document.createElement('div');
+    nom.className = 'mois-nom';
+    nom.textContent = nomDuMois(cle);
+
+    const grille = document.createElement('div');
+    grille.className = 'mois-points';
+    points.forEach((p) => grille.appendChild(creerPoint(donnees, p)));
+
+    mois.append(nom, grille);
+    popupContenu.appendChild(mois);
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'formulaire-boutons';
+  actions.style.marginTop = '18px';
+
+  const modifier = document.createElement('button');
+  modifier.className = 'btn-principal';
+  modifier.textContent = 'Modifier';
+  modifier.addEventListener('click', () => formulaireEdition(donnees));
+
+  const archiver = document.createElement('button');
+  archiver.className = 'btn-discret';
+  archiver.textContent = 'Archiver';
+  archiver.addEventListener('click', async () => {
+    if (!confirm(`Archiver « ${donnees.nom} » ? L'historique est conservé.`)) return;
+    await envoyer(`/api/habits/${donnees.id}/archive`, {});
+    fermerPopup();
+    await recharger();
+  });
+
+  actions.append(modifier, archiver);
+  popupContenu.appendChild(actions);
+}
+
+function formulaireEdition(donnees) {
+  const form = document.createElement('form');
+  form.className = 'formulaire';
+
+  const nom = document.createElement('input');
+  nom.value = donnees.nom;
+  nom.required = true;
+
+  const couleur = selecteurCouleur(donnees.couleur);
+
+  const objectif = document.createElement('input');
+  objectif.type = 'number';
+  objectif.min = '1';
+  objectif.value = donnees.objectif;
+  if (donnees.type !== 'weekly') objectif.classList.add('cache');
+
+  const avertissement = document.createElement('div');
+  avertissement.className = 'stat-label';
+  avertissement.style.color = 'var(--rate)';
+  avertissement.classList.add('cache');
+  avertissement.textContent =
+    'Augmenter l\'objectif fera passer au rouge les semaines passées désormais insuffisantes.';
+  objectif.addEventListener('input', () => {
+    avertissement.classList.toggle('cache', Number(objectif.value) <= donnees.objectif);
+  });
+
+  const boutons = document.createElement('div');
+  boutons.className = 'formulaire-boutons';
+  const valider = document.createElement('button');
+  valider.type = 'submit';
+  valider.className = 'btn-principal';
+  valider.textContent = 'Enregistrer';
+  const annuler = document.createElement('button');
+  annuler.type = 'button';
+  annuler.className = 'btn-discret';
+  annuler.textContent = 'Annuler';
+  annuler.addEventListener('click', () => window.rafraichirHistorique());
+  boutons.append(valider, annuler);
+
+  form.append(nom, couleur.zone, objectif, avertissement, boutons);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      // Le type n'est volontairement pas envoyé : il est immuable.
+      await envoyer(`/api/habits/${donnees.id}`, {
+        nom: nom.value,
+        couleur: couleur.valeur(),
+        objectif: Number(objectif.value)
+      }, 'PATCH');
+      await recharger();
+      await window.rafraichirHistorique();
+    } catch (err) {
+      signaler(err.message);
+    }
+  });
+
+  popupContenu.appendChild(form);
+  nom.focus();
+}
+
+function fermerPopup() {
+  popup.classList.add('cache');
+  habitOuverte = null;
+}
+
+window.ouvrirHistorique = async (habitId) => {
+  habitOuverte = habitId;
+  popup.classList.remove('cache');
+  popupContenu.textContent = 'Chargement…';
+  try {
+    rendreHistorique(await api(`/api/history?habit_id=${habitId}`));
+  } catch (err) {
+    signaler(err.message);
+    fermerPopup();
+  }
+};
+
+window.rafraichirHistorique = async () => {
+  if (habitOuverte === null) return;
+  rendreHistorique(await api(`/api/history?habit_id=${habitOuverte}`));
+};
+
+document.getElementById('popup-fermer').addEventListener('click', fermerPopup);
+popup.addEventListener('click', (e) => { if (e.target === popup) fermerPopup(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fermerPopup(); });
 
 recharger().catch((err) => signaler(err.message));
