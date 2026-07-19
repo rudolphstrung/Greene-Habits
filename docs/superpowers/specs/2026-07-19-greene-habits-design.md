@@ -158,6 +158,7 @@ Le bandeau `LU MA ME JE VE SA DI` n'apparaît qu'au-dessus du bloc DAILY.
 | Clic sur le nom d'une habitude | ouvre le popup d'historique |
 | `+ habitude` | formulaire inline dans la card : nom, type, couleur, objectif si weekly |
 | `+ joueur` | demande un prénom, crée une card vide |
+| `Modifier` dans le popup | formulaire d'édition : nom, couleur, objectif |
 
 Le cycle « un clic de plus remet à zéro » évite d'avoir à construire un menu de correction : tout se répare avec le même geste.
 
@@ -205,21 +206,31 @@ En tête du popup : nom de l'habitude, streak actuel, **record**, et **taux de r
 
 **Les points du popup sont cliquables**, avec exactement les mêmes règles que la vue principale. C'est le seul endroit d'où l'on peut réparer un oubli datant de plus d'une semaine — la vue principale ne montrant que 7 points, sans cela un jour manqué le mois dernier serait figé en rouge pour toujours. Le popup et la card partagent le même gestionnaire de clic et la même route API.
 
-En pied : un bouton `Archiver` (met `archived = 1`, ne supprime rien).
+En pied : deux boutons, `Modifier` et `Archiver` (ce dernier met `archived = 1`, ne supprime rien).
 
 Fermeture au clic en dehors ou sur la croix.
+
+### Édition d'une habitude
+
+`Modifier` ouvre un formulaire sur trois champs : **nom**, **couleur**, **objectif**.
+
+**Le type reste figé.** Basculer une habitude de `daily` à `weekly` rendrait tout son historique incohérent : ses `date_ref` sont des jours, alors que le mode weekly les lit comme des lundis. On afficherait des semaines fantômes à partir d'entries journalières. Changer de type = archiver et recréer.
+
+**Changer l'objectif d'une weekly recolore le passé.** L'état n'étant jamais stocké, passer un objectif de 2 à 3 fait virer au rouge les semaines passées où l'on n'avait fait que 2 séances. C'est assumé et cohérent : le but est de refléter l'exigence actuelle, pas de figer un historique flatteur. Le formulaire prévient quand l'objectif augmente.
 
 ---
 
 ## 8. API
 
-Cinq routes, toutes en JSON.
+Sept routes, toutes en JSON.
 
 | Méthode | Route | Rôle |
 |---|---|---|
 | `GET` | `/api/state` | Tout l'état de la page : joueurs, habitudes, 7 points de chacune, streaks |
 | `POST` | `/api/players` | `{ nom }` → crée un joueur |
 | `POST` | `/api/habits` | `{ player_id, nom, type, couleur, objectif }` → crée une habitude |
+| `PATCH` | `/api/habits/:id` | `{ nom, couleur, objectif }` → édite une habitude. `type` et `player_id` sont ignorés s'ils sont envoyés. |
+| `POST` | `/api/habits/:id/archive` | Met `archived = 1` |
 | `POST` | `/api/toggle` | `{ habit_id, date_ref }` → applique la règle de cycle, renvoie le nouveau `count` |
 | `GET` | `/api/history?habit_id=` | Toutes les entries depuis la création, pour le popup |
 
@@ -257,6 +268,8 @@ Tests unitaires sur des fonctions pures, sans DB :
 6. Weekly : `date_ref` d'un mercredi → ramené au lundi de la même semaine
 7. Weekly : cycle de clics `0 → 1 → 2 → 3 → 0` sur un objectif de 3
 8. Passage de semaine : la fenêtre des 7 jours glisse correctement le lundi
+9. Édition : augmenter l'objectif d'une weekly recolore bien les semaines passées désormais insuffisantes
+10. Édition : une requête tentant de changer `type` laisse le type inchangé
 
 ---
 
@@ -267,7 +280,7 @@ Volontairement absents de la v1 :
 - Comptes, mots de passe, sessions
 - Notifications, rappels, e-mails
 - Classements, points, badges
-- Édition d'une habitude après création (on archive et on recrée)
+- Changement de type d'une habitude après création (voir § 7)
 - Export de données
 - Mode clair
 
