@@ -7,7 +7,13 @@ export const COULEURS = [
   '#22D3EE', // cyan
   '#22C55E', // vert
   '#F59E0B', // ambre
-  '#84CC16'  // lime
+  '#84CC16', // lime
+  '#EC4899', // rose
+  '#14B8A6', // turquoise
+  '#8B5CF6', // indigo
+  '#F5D0FE', // lilas clair
+  '#38BDF8', // ciel
+  '#FDE047'  // jaune
 ];
 
 const SCHEMA = `
@@ -19,14 +25,16 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS habits (
-    id         INTEGER PRIMARY KEY,
-    player_id  INTEGER NOT NULL REFERENCES players(id),
-    nom        TEXT NOT NULL,
-    type       TEXT NOT NULL CHECK (type IN ('daily','weekly')),
-    couleur    TEXT NOT NULL,
-    objectif   INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    archived   INTEGER NOT NULL DEFAULT 0
+    id          INTEGER PRIMARY KEY,
+    player_id   INTEGER NOT NULL REFERENCES players(id),
+    nom         TEXT NOT NULL,
+    type        TEXT NOT NULL CHECK (type IN ('daily','weekly')),
+    couleur     TEXT NOT NULL,
+    objectif    INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL,
+    archived    INTEGER NOT NULL DEFAULT 0,
+    note        TEXT NOT NULL DEFAULT '',
+    archived_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS entries (
@@ -58,12 +66,30 @@ function migrerObjectifEntries(db) {
   );
 }
 
+// Migration pour les bases créées avant l'ajout de `note` et `archived_at` sur
+// habits. Idempotente : ne touche à rien si les colonnes existent déjà.
+function migrerColonnesHabits(db) {
+  const colonnes = db.prepare('PRAGMA table_info(habits)').all().map((c) => c.name);
+  if (!colonnes.includes('note')) {
+    db.exec("ALTER TABLE habits ADD COLUMN note TEXT NOT NULL DEFAULT ''");
+  }
+  if (!colonnes.includes('archived_at')) {
+    db.exec('ALTER TABLE habits ADD COLUMN archived_at TEXT');
+  }
+  // Une habitude déjà archivée avant l'ajout de la colonne n'a pas de date :
+  // on la date d'aujourd'hui, faute de mieux, pour figer son décompte.
+  db.prepare(
+    `UPDATE habits SET archived_at = ? WHERE archived = 1 AND archived_at IS NULL`
+  ).run(todayISO());
+}
+
 export function openDb(path = process.env.DB_PATH || '/data/greene.db') {
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
   migrerObjectifEntries(db);
+  migrerColonnesHabits(db);
 
   // Amorçage : Anatole seul. Les autres se créent via le bouton "+ joueur".
   const nb = db.prepare('SELECT COUNT(*) AS n FROM players').get().n;
@@ -82,8 +108,18 @@ export function getPlayers(db) {
 
 export function getHabits(db) {
   return db.prepare(
-    `SELECT id, player_id, nom, type, couleur, objectif, created_at
+    `SELECT id, player_id, nom, type, couleur, objectif, created_at, archived, archived_at, note
      FROM habits WHERE archived = 0 ORDER BY id`
+  ).all();
+}
+
+// Toutes les habitudes, archivées comprises — utile au leaderboard mensuel
+// (Tâche 2) et au profil joueur, qui doivent aussi voir les habitudes
+// arrêtées en cours de mois.
+export function getAllHabits(db) {
+  return db.prepare(
+    `SELECT id, player_id, nom, type, couleur, objectif, created_at, archived, archived_at, note
+     FROM habits ORDER BY id`
   ).all();
 }
 
@@ -101,7 +137,7 @@ export function createPlayer(db, nom) {
   return { id: lastInsertRowid, nom: propre };
 }
 
-export function createHabit(db, { player_id, nom, type, couleur, objectif }) {
+export function createHabit(db, { player_id, nom, type, couleur, objectif, note }) {
   const propre = nomValide(nom);
   if (type !== 'daily' && type !== 'weekly') {
     throw new Error('Type inconnu');
@@ -117,23 +153,24 @@ export function createHabit(db, { player_id, nom, type, couleur, objectif }) {
     cible = parseInt(objectif, 10);
     if (!Number.isInteger(cible) || cible < 1) throw new Error('Objectif invalide');
   }
+  const noteFinale = String(note ?? '').trim();
 
   const { lastInsertRowid } = db.prepare(
-    `INSERT INTO habits (player_id, nom, type, couleur, objectif, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(player_id, propre, type, couleur, cible, todayISO());
+    `INSERT INTO habits (player_id, nom, type, couleur, objectif, created_at, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(player_id, propre, type, couleur, cible, todayISO(), noteFinale);
 
   return getHabit(db, lastInsertRowid);
 }
 
 export function getHabit(db, id) {
   return db.prepare(
-    `SELECT id, player_id, nom, type, couleur, objectif, created_at, archived
+    `SELECT id, player_id, nom, type, couleur, objectif, created_at, archived, archived_at, note
      FROM habits WHERE id = ?`
   ).get(id);
 }
 
-export function updateHabit(db, id, { nom, couleur, objectif }) {
+export function updateHabit(db, id, { nom, couleur, objectif, note }) {
   const habit = getHabit(db, id);
   if (!habit) throw new Error('Habitude introuvable');
 
@@ -148,14 +185,16 @@ export function updateHabit(db, id, { nom, couleur, objectif }) {
     cible = parseInt(objectif, 10);
     if (!Number.isInteger(cible) || cible < 1) throw new Error('Objectif invalide');
   }
+  const noteFinale = String(note ?? '').trim();
 
-  db.prepare('UPDATE habits SET nom = ?, couleur = ?, objectif = ? WHERE id = ?')
-    .run(propre, couleur, cible, id);
+  db.prepare('UPDATE habits SET nom = ?, couleur = ?, objectif = ?, note = ? WHERE id = ?')
+    .run(propre, couleur, cible, noteFinale, id);
   return getHabit(db, id);
 }
 
 export function archiveHabit(db, id) {
-  const info = db.prepare('UPDATE habits SET archived = 1 WHERE id = ?').run(id);
+  const info = db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = ?')
+    .run(todayISO(), id);
   if (info.changes === 0) throw new Error('Habitude introuvable');
 }
 

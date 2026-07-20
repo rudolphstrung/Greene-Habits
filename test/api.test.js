@@ -30,7 +30,7 @@ test('GET /api/state rend Anatole sans habitude', async () => {
   const { statut, corps } = await s.json('/api/state');
   assert.equal(statut, 200);
   assert.equal(corps.today, todayISO());
-  assert.equal(corps.couleurs.length, 6);
+  assert.equal(corps.couleurs.length, 12);
   assert.equal(corps.players.length, 1);
   assert.equal(corps.players[0].nom, 'Anatole');
   assert.deepEqual(corps.players[0].habits, []);

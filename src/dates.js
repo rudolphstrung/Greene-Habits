@@ -58,3 +58,7 @@ export function allWeeksSince(startISO, endISO) {
   }
   return semaines;
 }
+
+export function firstOfMonth(dateISO) {
+  return `${dateISO.slice(0, 7)}-01`;
+}

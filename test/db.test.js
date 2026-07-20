@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
-  openDb, getPlayers, getHabits, COULEURS, createPlayer, createHabit, updateHabit,
+  openDb, getPlayers, getHabits, getAllHabits, getHabit, COULEURS, createPlayer, createHabit, updateHabit,
   archiveHabit, getEntries, toggle, refFor
 } from '../src/db.js';
 import { todayISO, mondayOf, addDays } from '../src/dates.js';
@@ -24,10 +24,11 @@ test('openDb est idempotent : deux migrations ne dupliquent pas Anatole', () => 
   assert.equal(getHabits(db).length, 0);
 });
 
-test('la palette contient 6 couleurs et jamais le rouge d\'échec', () => {
-  assert.equal(COULEURS.length, 6);
+test('la palette contient 12 couleurs, sans le rouge ni le gris réservés', () => {
+  assert.equal(COULEURS.length, 12);
   assert.ok(!COULEURS.includes('#EF4444'));
   assert.ok(!COULEURS.includes('#2A2A2E'));
+  assert.equal(new Set(COULEURS).size, 12); // toutes distinctes
 });
 
 test('le schéma refuse un type d\'habitude inconnu', () => {
@@ -126,6 +127,37 @@ test('archiveHabit retire l\'habitude sans supprimer la ligne', () => {
 test('archiveHabit refuse un id inexistant', () => {
   const db = openDb(':memory:');
   assert.throws(() => archiveHabit(db, 9999), /introuvable/i);
+});
+
+test('createHabit enregistre la note', () => {
+  const { db, habit } = baseAvecHabitude({ note: 'Lire 10 pages avant de dormir' });
+  assert.equal(getHabit(db, habit.id).note, 'Lire 10 pages avant de dormir');
+});
+
+test('une habitude sans note a une note vide, pas null', () => {
+  const { db, habit } = baseAvecHabitude();
+  assert.equal(getHabit(db, habit.id).note, '');
+});
+
+test('updateHabit modifie la note', () => {
+  const { db, habit } = baseAvecHabitude({ note: 'avant' });
+  updateHabit(db, habit.id, { nom: 'Lecture', couleur: '#4C6FFF', objectif: 1, note: 'après' });
+  assert.equal(getHabit(db, habit.id).note, 'après');
+});
+
+test('archiveHabit pose la date d archivage', () => {
+  const { db, habit } = baseAvecHabitude();
+  archiveHabit(db, habit.id);
+  const h = getHabit(db, habit.id);
+  assert.equal(h.archived, 1);
+  assert.equal(h.archived_at, todayISO());
+});
+
+test('getAllHabits rend aussi les archivées, getHabits non', () => {
+  const { db, habit } = baseAvecHabitude();
+  archiveHabit(db, habit.id);
+  assert.equal(getHabits(db).length, 0);
+  assert.equal(getAllHabits(db).length, 1);
 });
 
 test('refFor rend le jour pour une daily et le lundi pour une weekly', () => {

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   todayISO, mondayOf, addDays, currentWeekDays,
-  lastSevenWeeks, allDaysSince, allWeeksSince
+  lastSevenWeeks, allDaysSince, allWeeksSince, firstOfMonth
 } from '../src/dates.js';
 
 test('todayISO rend une date au format YYYY-MM-DD', () => {
@@ -63,4 +63,9 @@ test('allWeeksSince rend les lundis des deux bornes incluses', () => {
     allWeeksSince('2026-07-01', '2026-07-15'),
     ['2026-06-29', '2026-07-06', '2026-07-13']
   );
+});
+
+test('firstOfMonth ramène au 1er du mois', () => {
+  assert.equal(firstOfMonth('2026-07-20'), '2026-07-01');
+  assert.equal(firstOfMonth('2026-01-01'), '2026-01-01');
 });
