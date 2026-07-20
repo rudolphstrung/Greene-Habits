@@ -26,3 +26,11 @@ tout l'historique.
   pour une hebdomadaire.
 - Le type d'une habitude est immuable après création.
 - Rien n'est jamais supprimé : `archived = 1`.
+- Chaque entry fige l'objectif de l'habitude au moment où elle est écrite
+  (`entries.objectif`). Une période passée est jugée sur l'objectif en vigueur
+  à l'époque ; seule la période en cours suit l'objectif actuel. Augmenter
+  l'objectif d'une habitude ne repeint donc jamais en rouge une période déjà
+  réussie — la barre ne monte qu'à partir de maintenant.
+- Un point n'est cliquable que dans la fenêtre acceptée par `/api/toggle`
+  (création de l'habitude → période courante incluse), ce que le serveur
+  expose via `cliquable` sur chaque point ; le front ne le devine jamais.

@@ -42,8 +42,9 @@ function creerPoint(habit, point) {
   if (point.etat === 'reussi') bouton.style.background = habit.couleur;
   else if (point.etat === 'rate') bouton.classList.add('rate');
 
-  // Une période future ne se coche pas : le serveur la refuserait de toute façon.
-  if (point.ref > etat.today) bouton.classList.add('futur');
+  // Le serveur seul sait ce qui est cliquable (fenêtre créée→courante) :
+  // futur ET périodes antérieures à la création de l'habitude.
+  if (!point.cliquable) bouton.classList.add('futur');
   return bouton;
 }
 
@@ -366,16 +367,6 @@ function formulaireEdition(donnees) {
   objectif.value = donnees.objectif;
   if (donnees.type !== 'weekly') objectif.classList.add('cache');
 
-  const avertissement = document.createElement('div');
-  avertissement.className = 'stat-label';
-  avertissement.style.color = 'var(--rate)';
-  avertissement.classList.add('cache');
-  avertissement.textContent =
-    'Augmenter l\'objectif fera passer au rouge les semaines passées désormais insuffisantes.';
-  objectif.addEventListener('input', () => {
-    avertissement.classList.toggle('cache', Number(objectif.value) <= donnees.objectif);
-  });
-
   const boutons = document.createElement('div');
   boutons.className = 'formulaire-boutons';
   const valider = document.createElement('button');
@@ -389,7 +380,7 @@ function formulaireEdition(donnees) {
   annuler.addEventListener('click', () => { window.rafraichirHistorique().catch((err) => signaler(err.message)); });
   boutons.append(valider, annuler);
 
-  form.append(nom, couleur.zone, objectif, avertissement, boutons);
+  form.append(nom, couleur.zone, objectif, boutons);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {

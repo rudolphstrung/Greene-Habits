@@ -1,8 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import Database from 'better-sqlite3';
 import {
   openDb, getPlayers, getHabits, COULEURS, createPlayer, createHabit, updateHabit,
-  archiveHabit, getCounts, toggle, refFor
+  archiveHabit, getEntries, toggle, refFor
 } from '../src/db.js';
 import { todayISO, mondayOf, addDays } from '../src/dates.js';
 
@@ -141,7 +145,7 @@ test('toggle à 0 supprime l\'entry plutôt que d\'écrire un zéro', () => {
   const jour = todayISO();
   toggle(db, habit.id, jour);
   toggle(db, habit.id, jour);
-  assert.deepEqual(getCounts(db, habit.id), {});
+  assert.deepEqual(getEntries(db, habit.id), {});
 });
 
 test('toggle d\'une weekly cycle 0 → 1 → 2 → 3 → 0 sur un objectif de 3', () => {
@@ -171,4 +175,64 @@ test('toggle refuse une date antérieure à la création de l\'habitude', () => 
   db.prepare('UPDATE habits SET created_at = ? WHERE id = ?')
     .run('2026-07-01', habit.id);
   assert.throws(() => toggle(db, habit.id, '2026-06-30'), /fenêtre/i);
+});
+
+test('toggle enregistre l\'objectif courant de l\'habitude sur l\'entry écrite', () => {
+  const { db, habit } = baseAvecHabitude({ type: 'weekly', objectif: 2 });
+  const semaine = mondayOf(todayISO());
+  toggle(db, habit.id, semaine);
+  const entries = getEntries(db, habit.id);
+  assert.equal(entries[semaine].count, 1);
+  assert.equal(entries[semaine].objectif, 2);
+});
+
+test('la table entries expose bien une colonne objectif après ouverture', () => {
+  const db = openDb(':memory:');
+  const colonnes = db.prepare('PRAGMA table_info(entries)').all();
+  assert.ok(colonnes.some((c) => c.name === 'objectif'));
+});
+
+test('la migration objectif backfille les entries existantes et reste idempotente', () => {
+  const fichier = path.join(os.tmpdir(), `greene-migration-test-${Date.now()}-${Math.random()}.db`);
+  try {
+    // Simule une base créée AVANT l'ajout de la colonne objectif sur entries
+    // (schéma d'origine, sans passer par openDb).
+    const ancienne = new Database(fichier);
+    ancienne.exec(`
+      CREATE TABLE players (
+        id INTEGER PRIMARY KEY, nom TEXT NOT NULL, created_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE habits (
+        id INTEGER PRIMARY KEY, player_id INTEGER NOT NULL, nom TEXT NOT NULL, type TEXT NOT NULL,
+        couleur TEXT NOT NULL, objectif INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE entries (
+        id INTEGER PRIMARY KEY, habit_id INTEGER NOT NULL, date_ref TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (habit_id, date_ref)
+      );
+    `);
+    ancienne.prepare(`INSERT INTO players (id, nom, created_at) VALUES (1, 'Anatole', '2026-01-01')`).run();
+    ancienne.prepare(
+      `INSERT INTO habits (id, player_id, nom, type, couleur, objectif, created_at)
+       VALUES (1, 1, 'Sport', 'weekly', '#4C6FFF', 3, '2026-01-01')`
+    ).run();
+    ancienne.prepare(`INSERT INTO entries (habit_id, date_ref, count) VALUES (1, '2026-01-05', 2)`).run();
+    ancienne.close();
+
+    const db = openDb(fichier);
+    const entries = getEntries(db, 1);
+    assert.equal(entries['2026-01-05'].count, 2);
+    assert.equal(entries['2026-01-05'].objectif, 3); // backfillé depuis habits.objectif
+    db.close();
+
+    // Deuxième ouverture : la migration ne doit ni échouer ni écraser la donnée.
+    const db2 = openDb(fichier);
+    const entries2 = getEntries(db2, 1);
+    assert.equal(entries2['2026-01-05'].objectif, 3);
+    db2.close();
+  } finally {
+    fs.rmSync(fichier, { force: true });
+    fs.rmSync(`${fichier}-shm`, { force: true });
+    fs.rmSync(`${fichier}-wal`, { force: true });
+  }
 });

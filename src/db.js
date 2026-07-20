@@ -34,17 +34,36 @@ const SCHEMA = `
     habit_id INTEGER NOT NULL REFERENCES habits(id),
     date_ref TEXT NOT NULL,
     count    INTEGER NOT NULL DEFAULT 0,
+    objectif INTEGER,
     UNIQUE (habit_id, date_ref)
   );
 
   CREATE INDEX IF NOT EXISTS idx_entries_habit ON entries (habit_id, date_ref);
 `;
 
+// Migration pour les bases créées avant l'ajout de la colonne `objectif` sur
+// entries (chaque entry fige désormais l'objectif de l'habitude au moment où
+// elle a été écrite, pour ne jamais repeindre l'historique quand l'objectif
+// change). Idempotente : ne touche à rien si la colonne existe déjà.
+function migrerObjectifEntries(db) {
+  const colonnes = db.prepare('PRAGMA table_info(entries)').all();
+  if (!colonnes.some((c) => c.name === 'objectif')) {
+    db.exec('ALTER TABLE entries ADD COLUMN objectif INTEGER');
+  }
+  // Backfill inconditionnel : répare aussi les entries laissées à NULL par une
+  // version antérieure du serveur qui aurait écrit après l'ajout de la colonne.
+  db.exec(
+    `UPDATE entries SET objectif = (SELECT objectif FROM habits WHERE habits.id = entries.habit_id)
+     WHERE objectif IS NULL`
+  );
+}
+
 export function openDb(path = process.env.DB_PATH || '/data/greene.db') {
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  migrerObjectifEntries(db);
 
   // Amorçage : Anatole seul. Les autres se créent via le bouton "+ joueur".
   const nb = db.prepare('SELECT COUNT(*) AS n FROM players').get().n;
@@ -140,11 +159,15 @@ export function archiveHabit(db, id) {
   if (info.changes === 0) throw new Error('Habitude introuvable');
 }
 
-export function getCounts(db, habitId) {
+// Renvoie { [date_ref]: { count, objectif } } — l'objectif est celui figé sur
+// l'entry au moment où elle a été écrite (cf. migrerObjectifEntries et toggle).
+export function getEntries(db, habitId) {
   const lignes = db.prepare(
-    'SELECT date_ref, count FROM entries WHERE habit_id = ?'
+    'SELECT date_ref, count, objectif FROM entries WHERE habit_id = ?'
   ).all(habitId);
-  return Object.fromEntries(lignes.map((l) => [l.date_ref, l.count]));
+  return Object.fromEntries(
+    lignes.map((l) => [l.date_ref, { count: l.count, objectif: l.objectif }])
+  );
 }
 
 export function refFor(habit, dateISO) {
@@ -175,10 +198,13 @@ export function toggle(db, habitId, dateRef) {
     db.prepare('DELETE FROM entries WHERE habit_id = ? AND date_ref = ?')
       .run(habitId, ref);
   } else {
+    // L'objectif courant de l'habitude est figé sur l'entry : une période
+    // passée reste jugée sur l'exigence en vigueur au moment où elle a été
+    // écrite, même si l'objectif de l'habitude change ensuite.
     db.prepare(
-      `INSERT INTO entries (habit_id, date_ref, count) VALUES (?, ?, ?)
-       ON CONFLICT (habit_id, date_ref) DO UPDATE SET count = excluded.count`
-    ).run(habitId, ref, suivant);
+      `INSERT INTO entries (habit_id, date_ref, count, objectif) VALUES (?, ?, ?, ?)
+       ON CONFLICT (habit_id, date_ref) DO UPDATE SET count = excluded.count, objectif = excluded.objectif`
+    ).run(habitId, ref, suivant, habit.objectif);
   }
   return suivant;
 }

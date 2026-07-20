@@ -81,6 +81,7 @@ entries (
   habit_id    INTEGER NOT NULL REFERENCES habits(id),
   date_ref    TEXT NOT NULL,
   count       INTEGER NOT NULL DEFAULT 0,
+  objectif    INTEGER,
   UNIQUE (habit_id, date_ref)
 )
 ```
@@ -90,9 +91,11 @@ entries (
 - habitude **daily** → `date_ref` = le jour, `2026-07-19`
 - habitude **weekly** → `date_ref` = le **lundi de la semaine concernée**, `2026-07-13`
 
-`objectif` vaut toujours `1` pour une daily. Pour une weekly, c'est le nombre de fois visé dans la semaine (ex : `3`).
+`objectif` (sur `habits`) vaut toujours `1` pour une daily. Pour une weekly, c'est le nombre de fois visé dans la semaine (ex : `3`).
 
 **Une entry n'existe que si `count > 0`.** L'absence d'entry signifie zéro, ce qui garde la table petite et rend le calcul du rouge trivial.
+
+**`entries.objectif`** fige l'objectif de l'habitude au moment où l'entry est écrite (`toggle`). C'est ce qui permet de juger chaque période passée sur l'exigence en vigueur à l'époque plutôt que sur l'exigence actuelle — voir § 7 « Édition d'une habitude ». Une base créée avant cette colonne est migrée automatiquement à l'ouverture (`ALTER TABLE` + backfill depuis `habits.objectif`), sans perte de données.
 
 ---
 
@@ -216,7 +219,7 @@ Fermeture au clic en dehors ou sur la croix.
 
 **Le type reste figé.** Basculer une habitude de `daily` à `weekly` rendrait tout son historique incohérent : ses `date_ref` sont des jours, alors que le mode weekly les lit comme des lundis. On afficherait des semaines fantômes à partir d'entries journalières. Changer de type = archiver et recréer.
 
-**Changer l'objectif d'une weekly recolore le passé.** L'état n'étant jamais stocké, passer un objectif de 2 à 3 fait virer au rouge les semaines passées où l'on n'avait fait que 2 séances. C'est assumé et cohérent : le but est de refléter l'exigence actuelle, pas de figer un historique flatteur. Le formulaire prévient quand l'objectif augmente.
+**Changer l'objectif d'une weekly ne recolore jamais le passé.** Chaque entry fige l'objectif en vigueur au moment où elle a été écrite (colonne `objectif` sur `entries`). Une période passée est donc jugée contre l'exigence d'alors, pas contre l'exigence actuelle : augmenter l'objectif de 2 à 3 ne fait jamais virer au rouge une semaine déjà réussie à 2. Seule la période **en cours** suit toujours l'objectif live de l'habitude — augmenter la barre s'applique à partir de maintenant, jamais rétroactivement. C'est le comportement attendu : il est normal de vouloir augmenter petit à petit l'exigence d'une habitude sans être puni sur l'historique déjà acquis.
 
 ---
 
@@ -237,6 +240,8 @@ Sept routes, toutes en JSON.
 `GET /api/state` est appelé au chargement et après chaque mutation. Avec six joueurs, renvoyer l'état complet coûte moins cher à écrire — et à déboguer — qu'une synchronisation fine côté client.
 
 **Fenêtre d'écriture autorisée** pour `/api/toggle` : la `date_ref` doit être comprise entre la création de l'habitude et la période en cours incluse. On peut donc réparer tout le passé de l'habitude, mais jamais cocher à l'avance.
+
+Chaque point renvoyé par `/api/state` et `/api/history` porte un champ **`cliquable`** (booléen), calculé côté serveur avec exactement cette même fenêtre. Le front ne devine jamais si un point est cliquable — il applique `cliquable` tel quel (classe `.futur` = non cliquable), qu'il s'agisse d'une période future ou d'une période antérieure à la création de l'habitude.
 
 ---
 
@@ -268,7 +273,7 @@ Tests unitaires sur des fonctions pures, sans DB :
 6. Weekly : `date_ref` d'un mercredi → ramené au lundi de la même semaine
 7. Weekly : cycle de clics `0 → 1 → 2 → 3 → 0` sur un objectif de 3
 8. Passage de semaine : la fenêtre des 7 jours glisse correctement le lundi
-9. Édition : augmenter l'objectif d'une weekly recolore bien les semaines passées désormais insuffisantes
+9. Édition : augmenter l'objectif d'une weekly ne recolore pas les semaines passées déjà réussies ; seule la période en cours suit le nouvel objectif
 10. Édition : une requête tentant de changer `type` laisse le type inchangé
 
 ---

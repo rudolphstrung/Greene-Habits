@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { todayISO } from '../src/dates.js';
+import { todayISO, mondayOf, addDays } from '../src/dates.js';
 
 async function demarrer() {
   const db = openDb(':memory:');
@@ -196,6 +196,84 @@ test('une weekly dont la semaine de création est atteinte compte comme un succ�
 test('POST /api/habits/:id/archive sur un id inexistant rend 400', async () => {
   const s = await demarrer();
   const { statut, corps } = await s.json('/api/habits/9999/archive', s.post('/api/habits/9999/archive', {}));
+  assert.equal(statut, 400);
+  assert.ok(corps.erreur);
+  await s.fermer();
+});
+
+test('augmenter l\'objectif d\'une weekly ne repeint pas en rouge une semaine passée déjà réussie', async () => {
+  const s = await demarrer();
+  await s.json('/api/habits', s.post('/api/habits', {
+    player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+  }));
+  // Recule la création pour avoir une semaine passée entièrement écoulée.
+  s.db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run('2026-06-01', 1);
+  // Semaine passée (lundi 2026-07-06) : objectif de 2 pleinement atteint à l'époque.
+  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-06' }));
+  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-06' }));
+
+  // On augmente l'objectif à 3 : l'historique déjà réussi ne doit pas en souffrir.
+  const { statut: statutPatch } = await s.json('/api/habits/1', s.post('/api/habits/1', {
+    nom: 'Sport', couleur: '#4C6FFF', objectif: 3
+  }, 'PATCH'));
+  assert.equal(statutPatch, 200);
+
+  const { corps } = await s.json('/api/history?habit_id=1');
+  const semainePassee = corps.points.find((p) => p.ref === '2026-07-06');
+  assert.equal(semainePassee.etat, 'reussi');
+  await s.fermer();
+});
+
+test('la période courante est toujours jugée contre l\'objectif actuel de l\'habitude', async () => {
+  const s = await demarrer();
+  await s.json('/api/habits', s.post('/api/habits', {
+    player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+  }));
+  s.db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run('2026-06-01', 1);
+  const semaineCourante = mondayOf(todayISO());
+  // 2 séances cette semaine : suffisant pour l'ancien objectif de 2.
+  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: semaineCourante }));
+  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: semaineCourante }));
+
+  await s.json('/api/habits/1', s.post('/api/habits/1', {
+    nom: 'Sport', couleur: '#4C6FFF', objectif: 3
+  }, 'PATCH'));
+
+  const { corps } = await s.json('/api/state');
+  const habit = corps.players[0].habits[0];
+  const pointCourant = habit.points.find((p) => p.ref === semaineCourante);
+  // 2 < nouvel objectif 3 : plus réussi. Mais période en cours → jamais rouge.
+  assert.equal(pointCourant.etat, 'attente');
+  await s.fermer();
+});
+
+test('les points antérieurs à la création d\'une habitude ne sont pas cliquables, le point courant l\'est', async () => {
+  const s = await demarrer();
+  await s.json('/api/habits', s.post('/api/habits', {
+    player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+  }));
+  const { corps } = await s.json('/api/state');
+  const habit = corps.players[0].habits[0];
+  assert.equal(habit.points.length, 7);
+
+  const refCourante = mondayOf(todayISO());
+  const anterieurs = habit.points.filter((p) => p.ref !== refCourante);
+  assert.equal(anterieurs.length, 6);
+  assert.ok(anterieurs.every((p) => p.cliquable === false));
+
+  const courant = habit.points.find((p) => p.ref === refCourante);
+  assert.equal(courant.cliquable, true);
+  await s.fermer();
+});
+
+test('POST /api/toggle sur une date antérieure à la création rend toujours 400', async () => {
+  const s = await demarrer();
+  await s.json('/api/habits', s.post('/api/habits', {
+    player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+  }));
+  const semainePrecedente = addDays(mondayOf(todayISO()), -7);
+  const { statut, corps } = await s.json('/api/toggle',
+    s.post('/api/toggle', { habit_id: 1, date_ref: semainePrecedente }));
   assert.equal(statut, 400);
   assert.ok(corps.erreur);
   await s.fermer();

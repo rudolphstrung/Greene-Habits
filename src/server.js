@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  openDb, getPlayers, getHabits, getHabit, getCounts, COULEURS,
+  openDb, getPlayers, getHabits, getHabit, getEntries, COULEURS,
   createPlayer, createHabit, updateHabit, archiveHabit, toggle, refFor
 } from './db.js';
 import {
@@ -31,28 +31,48 @@ function toutesLesRefs(habit, aujourdhui) {
     : allDaysSince(habit.created_at, aujourdhui);
 }
 
-function pointsDe(habit, counts, refs, refCourante) {
+// L'objectif qui juge une période : celui en vigueur au moment où l'entry a
+// été écrite (figé), sauf pour la période courante qui suit toujours
+// l'objectif actuel de l'habitude — c'est ce qui permet d'augmenter la barre
+// sans repeindre en rouge les périodes déjà réussies.
+function cibleDe(habit, entries, ref, refCourante) {
+  if (ref === refCourante) return habit.objectif;
+  return entries[ref]?.objectif ?? habit.objectif;
+}
+
+function estReussi(habit, entries, ref, refCourante) {
+  const count = entries[ref]?.count || 0;
+  return count >= cibleDe(habit, entries, ref, refCourante);
+}
+
+function pointsDe(habit, entries, refs, refCourante) {
   const refCreation = refFor(habit, habit.created_at);
   return refs.map((ref) => {
-    const count = counts[ref] || 0;
+    const count = entries[ref]?.count || 0;
+    // Fenêtre exacte acceptée par toggle() : hors de là, le point n'est pas cliquable.
+    const cliquable = ref >= refCreation && ref <= refCourante;
     // Une période antérieure à la création n'existait pas.
     if (ref < refCreation) {
-      return { ref, count: 0, etat: 'attente' };
+      return { ref, count: 0, etat: 'attente', cliquable };
     }
+    const reussi = estReussi(habit, entries, ref, refCourante);
     // La période de création est partielle : elle ne peut jamais être ratée.
     if (ref === refCreation) {
-      return { ref, count, etat: count >= habit.objectif ? 'reussi' : 'attente' };
+      return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable };
     }
-    return { ref, count, etat: dotState(count, habit.objectif, ref < refCourante) };
+    return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable };
   });
 }
 
 // La période de création est partielle : si elle n'a pas été atteinte, elle
-// ne compte ni comme réussite ni comme échec dans les statistiques.
-function refsPourStats(habit, counts, refs) {
+// ne compte ni comme réussite ni comme échec dans les statistiques. Renvoie
+// directement la séquence de booléens attendue par computeStreak/bestStreak/successRate.
+function reussitesPourStats(habit, entries, refs, refCourante) {
   const refCreation = refFor(habit, habit.created_at);
-  if ((counts[refCreation] || 0) >= habit.objectif) return refs;
-  return refs.filter((r) => r !== refCreation);
+  const utiles = estReussi(habit, entries, refCreation, refCourante)
+    ? refs
+    : refs.filter((r) => r !== refCreation);
+  return utiles.map((ref) => estReussi(habit, entries, ref, refCourante));
 }
 
 function construireEtat(db) {
@@ -65,18 +85,19 @@ function construireEtat(db) {
     habits: habits
       .filter((h) => h.player_id === joueur.id)
       .map((h) => {
-        const counts = getCounts(db, h.id);
+        const entries = getEntries(db, h.id);
         const refCourante = refFor(h, aujourdhui);
         const refs = fenetre(h, aujourdhui);
+        const reussites = reussitesPourStats(h, entries, toutesLesRefs(h, aujourdhui), refCourante);
         return {
           id: h.id,
           nom: h.nom,
           type: h.type,
           couleur: h.couleur,
           objectif: h.objectif,
-          courant: counts[refCourante] || 0,
-          streak: computeStreak(refsPourStats(h, counts, toutesLesRefs(h, aujourdhui)), counts, h.objectif),
-          points: pointsDe(h, counts, refs, refCourante)
+          courant: entries[refCourante]?.count || 0,
+          streak: computeStreak(reussites),
+          points: pointsDe(h, entries, refs, refCourante)
         };
       })
   }));
@@ -88,10 +109,10 @@ function construireHistorique(db, habitId) {
   const habit = getHabit(db, habitId);
   if (!habit) return null;
   const aujourdhui = todayISO();
-  const counts = getCounts(db, habit.id);
+  const entries = getEntries(db, habit.id);
   const refs = toutesLesRefs(habit, aujourdhui);
   const refCourante = refFor(habit, aujourdhui);
-  const statsRefs = refsPourStats(habit, counts, refs);
+  const reussites = reussitesPourStats(habit, entries, refs, refCourante);
 
   return {
     id: habit.id,
@@ -99,10 +120,10 @@ function construireHistorique(db, habitId) {
     type: habit.type,
     couleur: habit.couleur,
     objectif: habit.objectif,
-    streak: computeStreak(statsRefs, counts, habit.objectif),
-    record: bestStreak(statsRefs, counts, habit.objectif),
-    taux: successRate(statsRefs, counts, habit.objectif),
-    points: pointsDe(habit, counts, refs, refCourante)
+    streak: computeStreak(reussites),
+    record: bestStreak(reussites),
+    taux: successRate(reussites),
+    points: pointsDe(habit, entries, refs, refCourante)
   };
 }
 
@@ -200,8 +221,13 @@ export function createServer(db) {
   });
 }
 
-// Démarrage réel uniquement hors tests.
-if (process.env.NODE_ENV !== 'test' && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Démarrage réel uniquement hors tests. `process.argv[1]` est absent quand le
+// module est importé sans script d'entrée (`node -e`, outillage) : sans ce
+// garde, pathToFileURL lèverait et l'import échouerait.
+const lanceDirectement =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (process.env.NODE_ENV !== 'test' && lanceDirectement) {
   const port = process.env.PORT || 3000;
   createServer(openDb()).listen(port, () => {
     console.log(`Greene Habits écoute sur le port ${port}`);
