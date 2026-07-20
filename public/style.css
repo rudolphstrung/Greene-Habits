@@ -163,7 +163,7 @@ main {
 }
 .formulaire-boutons { display: flex; gap: 8px; }
 
-.couleurs { display: flex; gap: 8px; }
+.couleurs { display: flex; flex-wrap: wrap; gap: 8px; }
 .pastille {
   width: 24px;
   height: 24px;
@@ -219,6 +219,64 @@ main {
   gap: 5px;
 }
 .mois-points .point { max-width: 20px; }
+
+.leaderboard {
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  background: var(--card);
+  border: 1px solid var(--bord);
+  border-radius: 16px;
+}
+.leaderboard-entete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.leaderboard-entete h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.leaderboard-mois {
+  font-size: 12px;
+  color: var(--doux);
+  text-transform: capitalize;
+}
+.leaderboard-liste { display: grid; gap: 6px; }
+.leaderboard-ligne {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.leaderboard-rang {
+  width: 20px;
+  color: var(--doux);
+  font-size: 12px;
+  text-align: right;
+}
+.leaderboard-nom { flex: 1; }
+.leaderboard-compte { color: var(--doux); font-size: 12px; white-space: nowrap; }
+.leaderboard-ligne-premier { background: var(--attente); }
+.leaderboard-ligne-premier .leaderboard-nom { font-weight: 600; }
+.leaderboard-ligne-dernier .leaderboard-compte { color: var(--rate); }
+.leaderboard-neutre { margin: 0; color: var(--doux); font-size: 13px; }
+
+.note {
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  background: var(--fond);
+  border: 1px solid var(--bord);
+  border-radius: 8px;
+  color: var(--doux);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
 
 .toast {
   position: fixed;

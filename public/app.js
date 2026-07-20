@@ -137,9 +137,74 @@ function rendre() {
       weekday: 'long', day: 'numeric', month: 'long'
     });
 
+  rendreLeaderboard();
+
   const conteneur = document.getElementById('joueurs');
   conteneur.textContent = '';
   etat.players.forEach((j) => conteneur.appendChild(creerCard(j)));
+}
+
+// --- Leaderboard mensuel ----------------------------------------------------
+
+function creerLigneLeaderboard(entree, rang, estDernier) {
+  const ligne = document.createElement('div');
+  ligne.className = 'leaderboard-ligne';
+  if (rang === 1) ligne.classList.add('leaderboard-ligne-premier');
+  if (estDernier) ligne.classList.add('leaderboard-ligne-dernier');
+
+  const rangEl = document.createElement('span');
+  rangEl.className = 'leaderboard-rang';
+  rangEl.textContent = String(rang);
+
+  const nomEl = document.createElement('span');
+  nomEl.className = 'leaderboard-nom';
+  nomEl.textContent = entree.nom;
+
+  const compteEl = document.createElement('span');
+  compteEl.className = 'leaderboard-compte';
+  compteEl.textContent = `${entree.trahisons} trahison${entree.trahisons > 1 ? 's' : ''}`;
+
+  ligne.append(rangEl, nomEl, compteEl);
+  return ligne;
+}
+
+function rendreLeaderboard() {
+  const conteneur = document.getElementById('leaderboard');
+  conteneur.textContent = '';
+
+  const classement = etat.leaderboard || [];
+  if (classement.length === 0) {
+    conteneur.classList.add('cache');
+    return;
+  }
+  conteneur.classList.remove('cache');
+
+  const entete = document.createElement('div');
+  entete.className = 'leaderboard-entete';
+  const titre = document.createElement('h2');
+  titre.textContent = 'Qui a le plus trahi ses paroles ?';
+  const sousTitre = document.createElement('span');
+  sousTitre.className = 'leaderboard-mois';
+  sousTitre.textContent = etat.mois;
+  entete.append(titre, sousTitre);
+  conteneur.appendChild(entete);
+
+  const toutesAZero = classement.every((e) => e.trahisons === 0);
+  if (toutesAZero) {
+    const neutre = document.createElement('p');
+    neutre.className = 'leaderboard-neutre';
+    neutre.textContent = 'Personne n\'a encore trahi ce mois-ci.';
+    conteneur.appendChild(neutre);
+    return;
+  }
+
+  const liste = document.createElement('div');
+  liste.className = 'leaderboard-liste';
+  classement.forEach((entree, i) => {
+    const estDernier = classement.length > 1 && i === classement.length - 1;
+    liste.appendChild(creerLigneLeaderboard(entree, i + 1, estDernier));
+  });
+  conteneur.appendChild(liste);
 }
 
 // --- Formulaire d'ajout d'habitude ---------------------------------------
@@ -191,6 +256,9 @@ function formulaireHabitude(card, playerId, declencheur) {
     objectif.classList.toggle('cache', type.value !== 'weekly');
   });
 
+  const note = document.createElement('input');
+  note.placeholder = 'Note — à quoi t\'engages-tu ? (optionnel)';
+
   const couleur = selecteurCouleur();
 
   const boutons = document.createElement('div');
@@ -206,7 +274,7 @@ function formulaireHabitude(card, playerId, declencheur) {
   annuler.addEventListener('click', () => { form.remove(); declencheur.classList.remove('cache'); });
   boutons.append(valider, annuler);
 
-  form.append(nom, type, objectif, couleur.zone, boutons);
+  form.append(nom, type, objectif, note, couleur.zone, boutons);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -215,7 +283,8 @@ function formulaireHabitude(card, playerId, declencheur) {
         nom: nom.value,
         type: type.value,
         couleur: couleur.valeur(),
-        objectif: Number(objectif.value)
+        objectif: Number(objectif.value),
+        note: note.value
       });
       await recharger();
     } catch (err) {
@@ -298,6 +367,13 @@ function rendreHistorique(donnees) {
   titre.style.margin = '0';
   popupContenu.appendChild(titre);
 
+  if (donnees.note) {
+    const note = document.createElement('div');
+    note.className = 'note';
+    note.textContent = donnees.note;
+    popupContenu.appendChild(note);
+  }
+
   const stats = document.createElement('div');
   stats.className = 'stats';
   stats.append(
@@ -367,6 +443,10 @@ function formulaireEdition(donnees) {
   objectif.value = donnees.objectif;
   if (donnees.type !== 'weekly') objectif.classList.add('cache');
 
+  const note = document.createElement('input');
+  note.placeholder = 'Note — à quoi t\'engages-tu ? (optionnel)';
+  note.value = donnees.note || '';
+
   const boutons = document.createElement('div');
   boutons.className = 'formulaire-boutons';
   const valider = document.createElement('button');
@@ -380,7 +460,7 @@ function formulaireEdition(donnees) {
   annuler.addEventListener('click', () => { window.rafraichirHistorique().catch((err) => signaler(err.message)); });
   boutons.append(valider, annuler);
 
-  form.append(nom, couleur.zone, objectif, boutons);
+  form.append(nom, couleur.zone, objectif, note, boutons);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -388,7 +468,8 @@ function formulaireEdition(donnees) {
       await envoyer(`/api/habits/${donnees.id}`, {
         nom: nom.value,
         couleur: couleur.valeur(),
-        objectif: Number(objectif.value)
+        objectif: Number(objectif.value),
+        note: note.value
       }, 'PATCH');
       await recharger();
       await window.rafraichirHistorique();
