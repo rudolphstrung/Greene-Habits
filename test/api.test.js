@@ -278,3 +278,119 @@ test('POST /api/toggle sur une date antérieure à la création rend toujours 40
   assert.ok(corps.erreur);
   await s.fermer();
 });
+
+// --- Tâche 2 : leaderboard mensuel des trahisons + profil joueur ----------
+
+test('le leaderboard classe le moins trahi en premier', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/players', s.post('/api/players', { nom: 'Nicolas' }));
+    // Anatole : habitude quotidienne créée il y a 5 jours, aucun jour validé
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1')
+      .run(addDays(todayISO(), -5));
+    const { corps } = await s.json('/api/state');
+    const rang = corps.leaderboard.map((l) => l.nom);
+    assert.equal(rang[0], 'Nicolas');           // 0 trahison
+    assert.equal(rang[1], 'Anatole');           // des jours ratés
+    assert.ok(corps.leaderboard[1].trahisons > 0);
+    assert.equal(corps.leaderboard[0].trahisons, 0);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('la période en cours et la période de création ne sont pas des trahisons', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    // créée aujourd'hui, rien coché : ni la création ni le jour courant ne comptent
+    const { corps } = await s.json('/api/state');
+    assert.equal(corps.leaderboard.find((l) => l.nom === 'Anatole').trahisons, 0);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('une habitude archivée garde ses trahisons mais n\'en accumule plus', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1')
+      .run(addDays(todayISO(), -10));
+    const avant = (await s.json('/api/state')).corps.leaderboard[0].trahisons;
+    // archivée à J-5 : les 5 derniers jours ne doivent plus compter
+    s.db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = 1')
+      .run(addDays(todayISO(), -5));
+    const apres = (await s.json('/api/state')).corps.leaderboard[0].trahisons;
+    assert.ok(apres > 0, 'les trahisons passées restent comptées');
+    assert.ok(apres < avant, 'plus rien ne s\'accumule après archivage');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('la note est enregistrée à la création et rendue par history', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF',
+      objectif: 1, note: '10 pages avant de dormir'
+    }));
+    const { corps } = await s.json('/api/history?habit_id=1');
+    assert.equal(corps.note, '10 pages avant de dormir');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('le profil rend les habitudes actives et archivées séparément', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Active', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Ancienne', type: 'daily', couleur: '#22C55E', objectif: 1
+    }));
+    await s.json('/api/habits/2/archive', s.post('/api/habits/2/archive', {}));
+    const { statut, corps } = await s.json('/api/profile?player_id=1');
+    assert.equal(statut, 200);
+    assert.equal(corps.nom, 'Anatole');
+    assert.deepEqual(corps.actives.map((h) => h.nom), ['Active']);
+    assert.deepEqual(corps.archivees.map((h) => h.nom), ['Ancienne']);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('history fonctionne sur une habitude archivée', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Ancienne', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    await s.json('/api/habits/1/archive', s.post('/api/habits/1/archive', {}));
+    const { statut, corps } = await s.json('/api/history?habit_id=1');
+    assert.equal(statut, 200);
+    assert.equal(corps.nom, 'Ancienne');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('profil d\'un joueur inexistant rend 404', async () => {
+  const s = await demarrer();
+  try {
+    const { statut } = await s.json('/api/profile?player_id=999');
+    assert.equal(statut, 404);
+  } finally {
+    await s.fermer();
+  }
+});

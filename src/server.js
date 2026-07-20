@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  openDb, getPlayers, getHabits, getHabit, getEntries, COULEURS,
+  openDb, getPlayers, getHabits, getAllHabits, getHabit, getEntries, COULEURS,
   createPlayer, createHabit, updateHabit, archiveHabit, toggle, refFor
 } from './db.js';
 import {
-  todayISO, currentWeekDays, lastSevenWeeks, allDaysSince, allWeeksSince
+  todayISO, currentWeekDays, lastSevenWeeks, allDaysSince, allWeeksSince, firstOfMonth
 } from './dates.js';
 import { dotState, computeStreak, successRate, bestStreak } from './state.js';
 
@@ -75,6 +75,41 @@ function reussitesPourStats(habit, entries, refs, refCourante) {
   return utiles.map((ref) => estReussi(habit, entries, ref, refCourante));
 }
 
+// Une trahison = une période PASSÉE, dans le mois calendaire en cours, que
+// l'habitude n'a pas atteinte. La période de création (partielle) et la
+// période en cours n'en sont jamais. Une habitude archivée cesse d'accumuler
+// des trahisons à sa date d'archivage, mais garde celles d'avant.
+function trahisonsDeLHabitude(habit, entries, aujourdhui) {
+  const debutMois = firstOfMonth(aujourdhui);
+  const refCourante = refFor(habit, aujourdhui);
+  const refCreation = refFor(habit, habit.created_at);
+  const refFin = habit.archived_at ? refFor(habit, habit.archived_at) : refCourante;
+
+  return toutesLesRefs(habit, aujourdhui).filter((ref) => {
+    if (ref < debutMois) return false;      // hors du mois en cours
+    if (ref >= refCourante) return false;   // période en cours ou future
+    if (ref > refFin) return false;         // après l'archivage
+    if (ref === refCreation) return false;  // période de création, partielle
+    return !estReussi(habit, entries, ref, refCourante);
+  }).length;
+}
+
+// Classement mensuel des trahisons, toutes habitudes confondues (archivées
+// comprises : elles gardent les trahisons accumulées avant leur archivage).
+function construireLeaderboard(db, aujourdhui) {
+  const habits = getAllHabits(db);
+  return getPlayers(db)
+    .map((joueur) => ({
+      player_id: joueur.id,
+      nom: joueur.nom,
+      trahisons: habits
+        .filter((h) => h.player_id === joueur.id)
+        .reduce((total, h) =>
+          total + trahisonsDeLHabitude(h, getEntries(db, h.id), aujourdhui), 0)
+    }))
+    .sort((a, b) => a.trahisons - b.trahisons || a.nom.localeCompare(b.nom, 'fr'));
+}
+
 function construireEtat(db) {
   const aujourdhui = todayISO();
   const habits = getHabits(db);
@@ -102,14 +137,18 @@ function construireEtat(db) {
       })
   }));
 
-  return { today: aujourdhui, couleurs: COULEURS, players: joueurs };
+  return {
+    today: aujourdhui,
+    mois: new Date(`${aujourdhui}T12:00:00Z`).toLocaleDateString('fr-CH', { month: 'long', year: 'numeric' }),
+    couleurs: COULEURS,
+    players: joueurs,
+    leaderboard: construireLeaderboard(db, aujourdhui)
+  };
 }
 
-function construireHistorique(db, habitId) {
-  const habit = getHabit(db, habitId);
-  if (!habit) return null;
-  const aujourdhui = todayISO();
-  const entries = getEntries(db, habit.id);
+// Statistiques d'une habitude, réutilisées à la fois par l'historique détaillé
+// (avec les points) et par le profil joueur (sans les points).
+function statsHabit(habit, entries, aujourdhui) {
   const refs = toutesLesRefs(habit, aujourdhui);
   const refCourante = refFor(habit, aujourdhui);
   const reussites = reussitesPourStats(habit, entries, refs, refCourante);
@@ -120,10 +159,50 @@ function construireHistorique(db, habitId) {
     type: habit.type,
     couleur: habit.couleur,
     objectif: habit.objectif,
+    note: habit.note,
+    archived_at: habit.archived_at,
     streak: computeStreak(reussites),
     record: bestStreak(reussites),
     taux: successRate(reussites),
+    trahisonsMois: trahisonsDeLHabitude(habit, entries, aujourdhui)
+  };
+}
+
+function construireHistorique(db, habitId) {
+  const habit = getHabit(db, habitId);
+  if (!habit) return null;
+  const aujourdhui = todayISO();
+  const entries = getEntries(db, habit.id);
+  const refs = toutesLesRefs(habit, aujourdhui);
+  const refCourante = refFor(habit, aujourdhui);
+
+  return {
+    ...statsHabit(habit, entries, aujourdhui),
     points: pointsDe(habit, entries, refs, refCourante)
+  };
+}
+
+// Profil joueur : ses habitudes actives et archivées (celles-ci gardent leurs
+// trahisons passées, cf. trahisonsDeLHabitude), null si le joueur n'existe pas.
+function construireProfil(db, playerId) {
+  const joueur = getPlayers(db).find((j) => j.id === playerId);
+  if (!joueur) return null;
+
+  const aujourdhui = todayISO();
+  const habits = getAllHabits(db).filter((h) => h.player_id === playerId);
+  const actives = habits
+    .filter((h) => !h.archived)
+    .map((h) => statsHabit(h, getEntries(db, h.id), aujourdhui));
+  const archivees = habits
+    .filter((h) => h.archived)
+    .map((h) => statsHabit(h, getEntries(db, h.id), aujourdhui));
+
+  return {
+    id: joueur.id,
+    nom: joueur.nom,
+    trahisonsMois: [...actives, ...archivees].reduce((total, h) => total + h.trahisonsMois, 0),
+    actives,
+    archivees
   };
 }
 
@@ -185,6 +264,13 @@ export function createServer(db) {
         return historique
           ? envoyerJson(res, 200, historique)
           : envoyerJson(res, 404, { erreur: 'Habitude introuvable' });
+      }
+
+      if (req.method === 'GET' && chemin === '/api/profile') {
+        const profil = construireProfil(db, Number(url.searchParams.get('player_id')));
+        return profil
+          ? envoyerJson(res, 200, profil)
+          : envoyerJson(res, 404, { erreur: 'Joueur introuvable' });
       }
 
       if (req.method === 'POST' && chemin === '/api/players') {
