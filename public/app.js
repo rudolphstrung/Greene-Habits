@@ -55,10 +55,31 @@ function creerHabitude(habit) {
   const entete = document.createElement('div');
   entete.className = 'habitude-entete';
 
+  const nomZone = document.createElement('div');
+  nomZone.className = 'habitude-nom-zone';
+
   const nom = document.createElement('button');
   nom.className = 'habitude-nom';
   nom.textContent = habit.nom;
   nom.addEventListener('click', () => window.ouvrirHistorique(habit.id));
+
+  const supprimer = document.createElement('button');
+  supprimer.type = 'button';
+  supprimer.className = 'btn-supprimer';
+  supprimer.textContent = '×';
+  supprimer.setAttribute('aria-label', `Supprimer ${habit.nom}`);
+  supprimer.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Supprimer « ${habit.nom} » ? Elle restera dans l'historique du profil.`)) return;
+    try {
+      await envoyer(`/api/habits/${habit.id}/archive`, {});
+      await recharger();
+    } catch (err) {
+      signaler(err.message);
+    }
+  });
+
+  nomZone.append(nom, supprimer);
 
   const meta = document.createElement('div');
   meta.className = 'habitude-meta';
@@ -71,7 +92,7 @@ function creerHabitude(habit) {
   streak.textContent = `🔥 ${habit.streak}`;
   meta.appendChild(streak);
 
-  entete.append(nom, meta);
+  entete.append(nomZone, meta);
 
   const points = document.createElement('div');
   points.className = 'points';
@@ -110,8 +131,11 @@ function creerCard(joueur) {
   const card = document.createElement('section');
   card.className = 'card';
 
-  const titre = document.createElement('h2');
+  const titre = document.createElement('button');
+  titre.type = 'button';
+  titre.className = 'card-titre';
   titre.textContent = joueur.nom;
+  titre.addEventListener('click', () => window.ouvrirProfil(joueur.id));
   card.appendChild(titre);
 
   const daily = creerBloc('DAILY', joueur.habits.filter((h) => h.type === 'daily'), true);
@@ -331,6 +355,10 @@ window.GreeneHabits = { recharger, signaler, selecteurCouleur, envoyer };
 const popup = document.getElementById('popup');
 const popupContenu = document.getElementById('popup-contenu');
 let habitOuverte = null;
+let profilOuvert = null;
+// null (ouvert depuis l'accueil) ou 'profil' (ouvert depuis le popup profil,
+// auquel cas un lien « ← retour au profil » doit apparaître dans le détail).
+let origineHistorique = null;
 
 function grouperParMois(points) {
   const mois = new Map();
@@ -361,6 +389,15 @@ function bloqueStat(valeur, label) {
 
 function rendreHistorique(donnees) {
   popupContenu.textContent = '';
+
+  if (origineHistorique === 'profil') {
+    const retour = document.createElement('button');
+    retour.type = 'button';
+    retour.className = 'retour-profil';
+    retour.textContent = '← retour au profil';
+    retour.addEventListener('click', () => window.ouvrirProfil(profilOuvert));
+    popupContenu.appendChild(retour);
+  }
 
   const titre = document.createElement('h2');
   titre.textContent = donnees.nom;
@@ -485,10 +522,13 @@ function formulaireEdition(donnees) {
 function fermerPopup() {
   popup.classList.add('cache');
   habitOuverte = null;
+  profilOuvert = null;
+  origineHistorique = null;
 }
 
-window.ouvrirHistorique = async (habitId) => {
+window.ouvrirHistorique = async (habitId, origine = null) => {
   habitOuverte = habitId;
+  origineHistorique = origine;
   popup.classList.remove('cache');
   popupContenu.textContent = 'Chargement…';
   try {
@@ -502,6 +542,82 @@ window.ouvrirHistorique = async (habitId) => {
 window.rafraichirHistorique = async () => {
   if (habitOuverte === null) return;
   rendreHistorique(await api(`/api/history?habit_id=${habitOuverte}`));
+};
+
+// --- Popup de profil joueur -------------------------------------------------
+
+function creerLigneProfil(habit) {
+  const ligne = document.createElement('button');
+  ligne.type = 'button';
+  ligne.className = 'profil-ligne';
+  if (habit.archived_at) ligne.classList.add('profil-ligne-archivee');
+  ligne.addEventListener('click', () => window.ouvrirHistorique(habit.id, 'profil'));
+
+  const pastille = document.createElement('span');
+  pastille.className = 'profil-pastille';
+  pastille.style.background = habit.couleur;
+
+  const nom = document.createElement('span');
+  nom.className = 'profil-nom';
+  nom.textContent = habit.nom;
+
+  const infos = document.createElement('span');
+  infos.className = 'profil-infos';
+  infos.textContent = habit.archived_at
+    ? `🔥 ${habit.streak} · ${habit.taux}% · archivée le ${habit.archived_at}`
+    : `🔥 ${habit.streak} · ${habit.taux}%`;
+
+  ligne.append(pastille, nom, infos);
+  return ligne;
+}
+
+function rendreProfil(donnees) {
+  popupContenu.textContent = '';
+
+  const titre = document.createElement('h2');
+  titre.textContent = donnees.nom;
+  titre.style.margin = '0';
+  popupContenu.appendChild(titre);
+
+  const trahisons = document.createElement('div');
+  trahisons.className = 'note';
+  trahisons.textContent =
+    `${donnees.trahisonsMois} trahison${donnees.trahisonsMois > 1 ? 's' : ''} ce mois-ci`;
+  popupContenu.appendChild(trahisons);
+
+  const sectionActives = document.createElement('div');
+  sectionActives.className = 'profil-section';
+  const titreActives = document.createElement('div');
+  titreActives.className = 'bloc-titre';
+  titreActives.textContent = 'Habitudes actuelles';
+  sectionActives.appendChild(titreActives);
+  donnees.actives.forEach((h) => sectionActives.appendChild(creerLigneProfil(h)));
+  popupContenu.appendChild(sectionActives);
+
+  if (donnees.archivees.length > 0) {
+    const sectionArchivees = document.createElement('div');
+    sectionArchivees.className = 'profil-section';
+    const titreArchivees = document.createElement('div');
+    titreArchivees.className = 'bloc-titre';
+    titreArchivees.textContent = 'Anciennes habitudes';
+    sectionArchivees.appendChild(titreArchivees);
+    donnees.archivees.forEach((h) => sectionArchivees.appendChild(creerLigneProfil(h)));
+    popupContenu.appendChild(sectionArchivees);
+  }
+}
+
+window.ouvrirProfil = async (playerId) => {
+  profilOuvert = playerId;
+  habitOuverte = null;
+  origineHistorique = null;
+  popup.classList.remove('cache');
+  popupContenu.textContent = 'Chargement…';
+  try {
+    rendreProfil(await api(`/api/profile?player_id=${playerId}`));
+  } catch (err) {
+    signaler(err.message);
+    fermerPopup();
+  }
 };
 
 document.getElementById('popup-fermer').addEventListener('click', fermerPopup);
