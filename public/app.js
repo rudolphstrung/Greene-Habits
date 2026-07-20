@@ -580,7 +580,7 @@ function rendreProfil(donnees) {
   popupContenu.appendChild(titre);
 
   const trahisons = document.createElement('div');
-  trahisons.className = 'note';
+  trahisons.className = 'profil-trahisons';
   trahisons.textContent =
     `${donnees.trahisonsMois} trahison${donnees.trahisonsMois > 1 ? 's' : ''} ce mois-ci`;
   popupContenu.appendChild(trahisons);

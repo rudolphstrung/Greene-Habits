@@ -306,7 +306,8 @@ main {
 .leaderboard-ligne-dernier .leaderboard-compte { color: var(--rate); }
 .leaderboard-neutre { margin: 0; color: var(--doux); font-size: 13px; }
 
-.note {
+.note,
+.profil-trahisons {
   margin: 6px 0 4px;
   padding: 8px 10px;
   background: var(--fond);
@@ -331,7 +332,9 @@ main {
 .retour-profil:hover { color: var(--texte); }
 
 .profil-section { margin-top: 20px; }
-.profil-section:first-of-type { margin-top: 16px; }
+/* `:first-of-type` ne marcherait pas ici : il compare par balise, et le
+   résumé des trahisons est un div placé avant les sections. */
+.profil-section:first-child { margin-top: 16px; }
 
 .profil-ligne {
   display: flex;
