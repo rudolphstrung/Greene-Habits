@@ -32,15 +32,27 @@ function toutesLesRefs(habit, aujourdhui) {
 }
 
 function pointsDe(habit, counts, refs, refCourante) {
+  const refCreation = refFor(habit, habit.created_at);
   return refs.map((ref) => {
     const count = counts[ref] || 0;
-    // Une période antérieure à la création n'est ni ratée ni en attente :
-    // l'habitude n'existait pas, on la neutralise en 'attente'.
-    if (ref < refFor(habit, habit.created_at)) {
+    // Une période antérieure à la création n'existait pas.
+    if (ref < refCreation) {
       return { ref, count: 0, etat: 'attente' };
+    }
+    // La période de création est partielle : elle ne peut jamais être ratée.
+    if (ref === refCreation) {
+      return { ref, count, etat: count >= habit.objectif ? 'reussi' : 'attente' };
     }
     return { ref, count, etat: dotState(count, habit.objectif, ref < refCourante) };
   });
+}
+
+// La période de création est partielle : si elle n'a pas été atteinte, elle
+// ne compte ni comme réussite ni comme échec dans les statistiques.
+function refsPourStats(habit, counts, refs) {
+  const refCreation = refFor(habit, habit.created_at);
+  if ((counts[refCreation] || 0) >= habit.objectif) return refs;
+  return refs.filter((r) => r !== refCreation);
 }
 
 function construireEtat(db) {
@@ -63,7 +75,7 @@ function construireEtat(db) {
           couleur: h.couleur,
           objectif: h.objectif,
           courant: counts[refCourante] || 0,
-          streak: computeStreak(toutesLesRefs(h, aujourdhui), counts, h.objectif),
+          streak: computeStreak(refsPourStats(h, counts, toutesLesRefs(h, aujourdhui)), counts, h.objectif),
           points: pointsDe(h, counts, refs, refCourante)
         };
       })
@@ -79,6 +91,7 @@ function construireHistorique(db, habitId) {
   const counts = getCounts(db, habit.id);
   const refs = toutesLesRefs(habit, aujourdhui);
   const refCourante = refFor(habit, aujourdhui);
+  const statsRefs = refsPourStats(habit, counts, refs);
 
   return {
     id: habit.id,
@@ -86,9 +99,9 @@ function construireHistorique(db, habitId) {
     type: habit.type,
     couleur: habit.couleur,
     objectif: habit.objectif,
-    streak: computeStreak(refs, counts, habit.objectif),
-    record: bestStreak(refs, counts, habit.objectif),
-    taux: successRate(refs, counts, habit.objectif),
+    streak: computeStreak(statsRefs, counts, habit.objectif),
+    record: bestStreak(statsRefs, counts, habit.objectif),
+    taux: successRate(statsRefs, counts, habit.objectif),
     points: pointsDe(habit, counts, refs, refCourante)
   };
 }
@@ -100,7 +113,10 @@ function lireCorps(req) {
     let brut = '';
     req.on('data', (m) => {
       brut += m;
-      if (brut.length > 1e5) rejeter(new Error('Corps trop volumineux'));
+      if (brut.length > 1e5) {
+        rejeter(new Error('Corps trop volumineux'));
+        req.destroy();
+      }
     });
     req.on('end', () => {
       try { resoudre(brut ? JSON.parse(brut) : {}); }

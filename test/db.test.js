@@ -119,6 +119,11 @@ test('archiveHabit retire l\'habitude sans supprimer la ligne', () => {
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM habits').get().n, 1);
 });
 
+test('archiveHabit refuse un id inexistant', () => {
+  const db = openDb(':memory:');
+  assert.throws(() => archiveHabit(db, 9999), /introuvable/i);
+});
+
 test('refFor rend le jour pour une daily et le lundi pour une weekly', () => {
   assert.equal(refFor({ type: 'daily' }, '2026-07-15'), '2026-07-15');
   assert.equal(refFor({ type: 'weekly' }, '2026-07-15'), '2026-07-13');

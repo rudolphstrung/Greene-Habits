@@ -136,7 +136,8 @@ export function updateHabit(db, id, { nom, couleur, objectif }) {
 }
 
 export function archiveHabit(db, id) {
-  db.prepare('UPDATE habits SET archived = 1 WHERE id = ?').run(id);
+  const info = db.prepare('UPDATE habits SET archived = 1 WHERE id = ?').run(id);
+  if (info.changes === 0) throw new Error('Habitude introuvable');
 }
 
 export function getCounts(db, habitId) {
