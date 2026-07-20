@@ -25,25 +25,32 @@ async function demarrer() {
   };
 }
 
-test('GET /api/state rend Anatole sans habitude', async () => {
+test('GET /api/state rend les 6 joueurs sans habitude, chacun avec couleur et slug', async () => {
   const s = await demarrer();
-  const { statut, corps } = await s.json('/api/state');
-  assert.equal(statut, 200);
-  assert.equal(corps.today, todayISO());
-  assert.equal(corps.couleurs.length, 12);
-  assert.equal(corps.players.length, 1);
-  assert.equal(corps.players[0].nom, 'Anatole');
-  assert.deepEqual(corps.players[0].habits, []);
-  await s.fermer();
+  try {
+    const { statut, corps } = await s.json('/api/state');
+    assert.equal(statut, 200);
+    assert.equal(corps.today, todayISO());
+    assert.equal(corps.couleurs.length, 12);
+    assert.equal(corps.players.length, 6);
+    assert.deepEqual(corps.players.map((p) => p.nom),
+      ['Nicolas', 'Axel', 'Thomas', 'Owen', 'Guillaume', 'Anatole']);
+    assert.ok(corps.players.every((p) => Array.isArray(p.habits) && p.habits.length === 0));
+  } finally {
+    await s.fermer();
+  }
 });
 
 test('POST /api/players crée un joueur visible dans l\'état', async () => {
   const s = await demarrer();
-  const { statut } = await s.json('/api/players', s.post('/api/players', { nom: 'Thomas' }));
-  assert.equal(statut, 201);
-  const { corps } = await s.json('/api/state');
-  assert.equal(corps.players.length, 2);
-  await s.fermer();
+  try {
+    const { statut } = await s.json('/api/players', s.post('/api/players', { nom: 'Invité' }));
+    assert.equal(statut, 201);
+    const { corps } = await s.json('/api/state');
+    assert.equal(corps.players.length, 7);
+  } finally {
+    await s.fermer();
+  }
 });
 
 test('POST /api/players refuse un nom vide avec un 400', async () => {
@@ -284,19 +291,21 @@ test('POST /api/toggle sur une date antérieure à la création rend toujours 40
 test('le leaderboard classe le moins trahi en premier', async () => {
   const s = await demarrer();
   try {
-    await s.json('/api/players', s.post('/api/players', { nom: 'Nicolas' }));
+    const avant = (await s.json('/api/state')).corps;
+    const anatoleId = avant.players.find((p) => p.nom === 'Anatole').id;
     // Anatole : habitude quotidienne créée il y a 5 jours, aucun jour validé
     await s.json('/api/habits', s.post('/api/habits', {
-      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+      player_id: anatoleId, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
     }));
     s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1')
       .run(addDays(todayISO(), -5));
     const { corps } = await s.json('/api/state');
     const rang = corps.leaderboard.map((l) => l.nom);
-    assert.equal(rang[0], 'Nicolas');           // 0 trahison
-    assert.equal(rang[1], 'Anatole');           // des jours ratés
-    assert.ok(corps.leaderboard[1].trahisons > 0);
-    assert.equal(corps.leaderboard[0].trahisons, 0);
+    // Les 5 autres joueurs, tous à 0 trahison, triés alphabétiquement ;
+    // Anatole, seul à avoir des jours ratés, ferme la marche.
+    assert.deepEqual(rang, ['Axel', 'Guillaume', 'Nicolas', 'Owen', 'Thomas', 'Anatole']);
+    assert.ok(corps.leaderboard.slice(0, 5).every((l) => l.trahisons === 0));
+    assert.ok(corps.leaderboard[5].trahisons > 0);
   } finally {
     await s.fermer();
   }
@@ -305,12 +314,14 @@ test('le leaderboard classe le moins trahi en premier', async () => {
 test('la période en cours et la période de création ne sont pas des trahisons', async () => {
   const s = await demarrer();
   try {
+    // player_id 1 = Nicolas (premier joueur amorcé) : on vérifie le joueur qui
+    // possède réellement l'habitude, pas un tiers qui n'a rien créé.
     await s.json('/api/habits', s.post('/api/habits', {
       player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
     }));
     // créée aujourd'hui, rien coché : ni la création ni le jour courant ne comptent
     const { corps } = await s.json('/api/state');
-    assert.equal(corps.leaderboard.find((l) => l.nom === 'Anatole').trahisons, 0);
+    assert.equal(corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons, 0);
   } finally {
     await s.fermer();
   }
@@ -319,6 +330,7 @@ test('la période en cours et la période de création ne sont pas des trahisons
 test('une habitude archivée garde ses trahisons mais n\'en accumule plus', async () => {
   const s = await demarrer();
   try {
+    // player_id 1 = Nicolas (premier joueur amorcé).
     await s.json('/api/habits', s.post('/api/habits', {
       player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
     }));
@@ -327,13 +339,15 @@ test('une habitude archivée garde ses trahisons mais n\'en accumule plus', asyn
     // Avant archivage : jours J-10 (création) à J0 (aujourd'hui) = 11 jours.
     // Exclus : J-10 (création, partielle) et J0 (période en cours).
     // Restent J-9..J-1 = 9 jours, tous non cochés → 9 trahisons.
-    const avant = (await s.json('/api/state')).corps.leaderboard[0].trahisons;
+    // Nicolas a désormais des trahisons donc il n'est plus forcément en tête
+    // du classement (les 5 autres sont à 0) : on le cherche par nom.
+    const avant = (await s.json('/api/state')).corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons;
     assert.equal(avant, 9);
 
     // archivée à J-5 : les 5 derniers jours ne doivent plus compter
     s.db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = 1')
       .run(addDays(todayISO(), -5));
-    const apres = (await s.json('/api/state')).corps.leaderboard[0].trahisons;
+    const apres = (await s.json('/api/state')).corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons;
     // Après archivage à J-5 : mêmes 11 jours (J-10..J0), mais désormais exclus :
     //   - J-10 (création, partielle)
     //   - J-5..J0 (période d'archivage J-5 elle-même, partielle au même titre
@@ -411,7 +425,7 @@ test('le profil rend les habitudes actives et archivées séparément', async ()
     await s.json('/api/habits/2/archive', s.post('/api/habits/2/archive', {}));
     const { statut, corps } = await s.json('/api/profile?player_id=1');
     assert.equal(statut, 200);
-    assert.equal(corps.nom, 'Anatole');
+    assert.equal(corps.nom, 'Nicolas'); // player_id 1 = Nicolas, premier joueur amorcé
     assert.deepEqual(corps.actives.map((h) => h.nom), ['Active']);
     assert.deepEqual(corps.archivees.map((h) => h.nom), ['Ancienne']);
   } finally {
@@ -442,4 +456,33 @@ test('profil d\'un joueur inexistant rend 404', async () => {
   } finally {
     await s.fermer();
   }
+});
+
+// --- Tâche 1 v3 : couleur joueur, slug, routage /<slug> --------------------
+
+test('chaque joueur de /api/state porte couleur et slug', async () => {
+  const s = await demarrer();
+  try {
+    const { corps } = await s.json('/api/state');
+    const nicolas = corps.players.find((p) => p.nom === 'Nicolas');
+    assert.equal(nicolas.couleur, '#DC2626');
+    assert.equal(nicolas.slug, 'nicolas');
+  } finally { await s.fermer(); }
+});
+
+test('une URL de joueur sert la page (routage côté client)', async () => {
+  const s = await demarrer();
+  try {
+    const rep = await fetch(s.base + '/nicolas');
+    assert.equal(rep.status, 200);
+    assert.match(await rep.text(), /Greene Habits/);
+  } finally { await s.fermer(); }
+});
+
+test('un fichier manquant avec extension rend toujours 404', async () => {
+  const s = await demarrer();
+  try {
+    const rep = await fetch(s.base + '/inexistant.css');
+    assert.equal(rep.status, 404);
+  } finally { await s.fermer(); }
 });

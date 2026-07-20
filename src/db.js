@@ -16,6 +16,40 @@ export const COULEURS = [
   '#FDE047'  // jaune
 ];
 
+// Palette d'IDENTITÉ des joueurs — registre séparé de COULEURS (palette des
+// habitudes). Ne jamais fusionner les deux : #EF4444 (rouge des points
+// ratés) est réservé, le rouge joueur est donc volontairement plus profond
+// (#DC2626) pour ne jamais être confondu avec un point raté.
+export const COULEURS_JOUEURS = [
+  '#DC2626', // rouge — plus profond que le #EF4444 des points ratés
+  '#4C6FFF', // bleu
+  '#A855F7', // violet
+  '#B08968', // marron clair
+  '#FACC15', // jaune
+  '#22C55E'  // vert
+];
+
+// Les 6 vrais joueurs (groupe d'amis d'Anatole), amorcés dans cet ordre au
+// premier démarrage. Chacun reçoit une couleur d'identité fixe.
+const JOUEURS_INITIAUX = [
+  { nom: 'Nicolas',   couleur: '#DC2626' },
+  { nom: 'Axel',      couleur: '#4C6FFF' },
+  { nom: 'Thomas',    couleur: '#A855F7' },
+  { nom: 'Owen',      couleur: '#B08968' },
+  { nom: 'Guillaume', couleur: '#FACC15' },
+  { nom: 'Anatole',   couleur: '#22C55E' }
+];
+
+// Slug d'URL à partir d'un nom : minuscules, accents retirés, tout ce qui
+// n'est pas alphanumérique devient un tiret, pas de tiret en bord de chaîne.
+export function slugifier(nom) {
+  return String(nom)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // retire les accents
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS players (
     id         INTEGER PRIMARY KEY,
@@ -83,6 +117,25 @@ function migrerColonnesHabits(db) {
   ).run(todayISO());
 }
 
+// Migration pour les bases créées avant l'ajout de la colonne `couleur` sur
+// players (identité visuelle par joueur). Idempotente : ne touche à rien si
+// la colonne existe déjà. Backfill : au moment où la colonne est ajoutée,
+// les lignes déjà présentes reçoivent chacune une couleur distincte en
+// tournant sur COULEURS_JOUEURS (plutôt que la même couleur par défaut pour
+// tout le monde), dans leur ordre d'id.
+function migrerColonneCouleurJoueurs(db) {
+  const colonnes = db.prepare('PRAGMA table_info(players)').all().map((c) => c.name);
+  const nouvelleColonne = !colonnes.includes('couleur');
+  if (nouvelleColonne) {
+    db.exec("ALTER TABLE players ADD COLUMN couleur TEXT NOT NULL DEFAULT '#4C6FFF'");
+    const joueurs = db.prepare('SELECT id FROM players ORDER BY id').all();
+    const maj = db.prepare('UPDATE players SET couleur = ? WHERE id = ?');
+    joueurs.forEach((joueur, i) => {
+      maj.run(COULEURS_JOUEURS[i % COULEURS_JOUEURS.length], joueur.id);
+    });
+  }
+}
+
 export function openDb(path = process.env.DB_PATH || '/data/greene.db') {
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
@@ -90,19 +143,25 @@ export function openDb(path = process.env.DB_PATH || '/data/greene.db') {
   db.exec(SCHEMA);
   migrerObjectifEntries(db);
   migrerColonnesHabits(db);
+  migrerColonneCouleurJoueurs(db);
 
-  // Amorçage : Anatole seul. Les autres se créent via le bouton "+ joueur".
+  // Amorçage : les 6 vrais joueurs, dans l'ordre de JOUEURS_INITIAUX. Les
+  // joueurs suivants se créent via le bouton "+ joueur".
   const nb = db.prepare('SELECT COUNT(*) AS n FROM players').get().n;
   if (nb === 0) {
-    db.prepare('INSERT INTO players (nom, created_at) VALUES (?, ?)')
-      .run('Anatole', todayISO());
+    const inserer = db.prepare(
+      'INSERT INTO players (nom, couleur, created_at) VALUES (?, ?, ?)'
+    );
+    JOUEURS_INITIAUX.forEach((joueur) => {
+      inserer.run(joueur.nom, joueur.couleur, todayISO());
+    });
   }
   return db;
 }
 
 export function getPlayers(db) {
   return db.prepare(
-    'SELECT id, nom FROM players WHERE archived = 0 ORDER BY id'
+    'SELECT id, nom, couleur FROM players WHERE archived = 0 ORDER BY id'
   ).all();
 }
 
@@ -129,12 +188,19 @@ function nomValide(nom) {
   return propre;
 }
 
-export function createPlayer(db, nom) {
+export function createPlayer(db, nom, couleur) {
   const propre = nomValide(nom);
+  // Sans couleur explicite, on attribue la suivante en tournant sur
+  // COULEURS_JOUEURS selon le nombre de joueurs déjà présents (archivés
+  // compris, pour ne jamais réattribuer une couleur déjà prise en boucle
+  // courte).
+  const finale = couleur || COULEURS_JOUEURS[
+    db.prepare('SELECT COUNT(*) AS n FROM players').get().n % COULEURS_JOUEURS.length
+  ];
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO players (nom, created_at) VALUES (?, ?)')
-    .run(propre, todayISO());
-  return { id: lastInsertRowid, nom: propre };
+    .prepare('INSERT INTO players (nom, couleur, created_at) VALUES (?, ?, ?)')
+    .run(propre, finale, todayISO());
+  return { id: lastInsertRowid, nom: propre, couleur: finale };
 }
 
 export function createHabit(db, { player_id, nom, type, couleur, objectif, note }) {

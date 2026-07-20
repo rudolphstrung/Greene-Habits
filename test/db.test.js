@@ -5,23 +5,48 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
-  openDb, getPlayers, getHabits, getAllHabits, getHabit, COULEURS, createPlayer, createHabit, updateHabit,
+  openDb, getPlayers, getHabits, getAllHabits, getHabit, COULEURS, COULEURS_JOUEURS,
+  slugifier, createPlayer, createHabit, updateHabit,
   archiveHabit, getEntries, toggle, refFor
 } from '../src/db.js';
 import { todayISO, mondayOf, addDays } from '../src/dates.js';
 
-test('openDb crée le schéma et amorce Anatole', () => {
+test('l amorçage crée les 6 joueurs avec leur couleur', () => {
   const db = openDb(':memory:');
   const joueurs = getPlayers(db);
-  assert.equal(joueurs.length, 1);
-  assert.equal(joueurs[0].nom, 'Anatole');
+  assert.deepEqual(joueurs.map((j) => j.nom),
+    ['Nicolas', 'Axel', 'Thomas', 'Owen', 'Guillaume', 'Anatole']);
+  assert.equal(joueurs.find((j) => j.nom === 'Nicolas').couleur, '#DC2626');
+  assert.equal(joueurs.find((j) => j.nom === 'Anatole').couleur, '#22C55E');
+  assert.equal(joueurs.find((j) => j.nom === 'Owen').couleur, '#B08968');
 });
 
-test('openDb est idempotent : deux migrations ne dupliquent pas Anatole', () => {
+test('l amorçage est idempotent : deux ouvertures ne dupliquent pas les 6 joueurs', () => {
   const db = openDb(':memory:');
-  const joueurs = getPlayers(db);
-  assert.equal(joueurs.length, 1);
+  assert.equal(getPlayers(db).length, 6);
   assert.equal(getHabits(db).length, 0);
+});
+
+test('aucune couleur de joueur n est le rouge réservé aux points ratés', () => {
+  assert.ok(!COULEURS_JOUEURS.includes('#EF4444'));
+});
+
+test('slugifier normalise le nom', () => {
+  assert.equal(slugifier('Nicolas'), 'nicolas');
+  assert.equal(slugifier('Jean-Éric'), 'jean-eric');
+  assert.equal(slugifier('  Anne Marie '), 'anne-marie');
+});
+
+test('createPlayer attribue une couleur quand on ne lui en donne pas', () => {
+  const db = openDb(':memory:');
+  const j = createPlayer(db, 'Invité');
+  assert.ok(COULEURS_JOUEURS.includes(j.couleur));
+});
+
+test('createPlayer accepte une couleur explicite', () => {
+  const db = openDb(':memory:');
+  const j = createPlayer(db, 'Invité', '#A855F7');
+  assert.equal(j.couleur, '#A855F7');
 });
 
 test('la palette contient 12 couleurs, sans le rouge ni le gris réservés', () => {
@@ -64,8 +89,9 @@ function baseAvecHabitude(surcharges = {}) {
 
 test('createPlayer ajoute un joueur', () => {
   const db = openDb(':memory:');
-  createPlayer(db, 'Nicolas');
-  assert.deepEqual(getPlayers(db).map((j) => j.nom), ['Anatole', 'Nicolas']);
+  createPlayer(db, 'Testeur');
+  assert.deepEqual(getPlayers(db).map((j) => j.nom),
+    ['Nicolas', 'Axel', 'Thomas', 'Owen', 'Guillaume', 'Anatole', 'Testeur']);
 });
 
 test('createPlayer refuse un nom vide', () => {

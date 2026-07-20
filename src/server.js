@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   openDb, getPlayers, getHabits, getAllHabits, getHabit, getEntries, COULEURS,
-  createPlayer, createHabit, updateHabit, archiveHabit, toggle, refFor
+  createPlayer, createHabit, updateHabit, archiveHabit, toggle, refFor, slugifier
 } from './db.js';
 import {
   todayISO, currentWeekDays, lastSevenWeeks, allDaysSince, allWeeksSince, firstOfMonth
@@ -121,6 +121,8 @@ function construireEtat(db) {
   const joueurs = getPlayers(db).map((joueur) => ({
     id: joueur.id,
     nom: joueur.nom,
+    couleur: joueur.couleur,
+    slug: slugifier(joueur.nom),
     habits: habits
       .filter((h) => h.player_id === joueur.id)
       .map((h) => {
@@ -241,7 +243,18 @@ function envoyerJson(res, statut, donnees) {
 function servirStatique(res, urlPath) {
   const nom = urlPath === '/' ? '/index.html' : urlPath;
   const fichier = path.join(RACINE, path.normalize(nom).replace(/^(\.\.[/\\])+/, ''));
-  if (!fichier.startsWith(RACINE) || !fs.existsSync(fichier)) {
+  if (!fichier.startsWith(RACINE)) {
+    res.writeHead(404).end('Not found');
+    return;
+  }
+  if (!fs.existsSync(fichier)) {
+    // Une URL de joueur (ex: /nicolas) n'a pas de fichier correspondant : le
+    // routage se fait côté client, donc on sert index.html — mais seulement
+    // si le chemin n'a pas d'extension, sinon un asset cassé (/absent.css)
+    // renverrait silencieusement du HTML au lieu d'un 404 franc.
+    if (path.extname(nom) === '') {
+      return servirStatique(res, '/index.html');
+    }
     res.writeHead(404).end('Not found');
     return;
   }
