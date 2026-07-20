@@ -76,9 +76,11 @@ function reussitesPourStats(habit, entries, refs, refCourante) {
 }
 
 // Une trahison = une période PASSÉE, dans le mois calendaire en cours, que
-// l'habitude n'a pas atteinte. La période de création (partielle) et la
-// période en cours n'en sont jamais. Une habitude archivée cesse d'accumuler
-// des trahisons à sa date d'archivage, mais garde celles d'avant.
+// l'habitude n'a pas atteinte. La période de création et la période
+// d'archivage sont toutes deux partielles (l'habitude n'a existé qu'une
+// fraction de la période) : ni l'une ni l'autre ne compte, tout comme la
+// période en cours. Une habitude archivée cesse d'accumuler des trahisons
+// dès sa période d'archivage, mais garde celles d'avant.
 function trahisonsDeLHabitude(habit, entries, aujourdhui) {
   const debutMois = firstOfMonth(aujourdhui);
   const refCourante = refFor(habit, aujourdhui);
@@ -88,7 +90,9 @@ function trahisonsDeLHabitude(habit, entries, aujourdhui) {
   return toutesLesRefs(habit, aujourdhui).filter((ref) => {
     if (ref < debutMois) return false;      // hors du mois en cours
     if (ref >= refCourante) return false;   // période en cours ou future
-    if (ref > refFin) return false;         // après l'archivage
+    // La période d'archivage est partielle au même titre que celle de création :
+    // l'habitude a été arrêtée en cours de route, on ne la juge pas dessus.
+    if (habit.archived_at && ref >= refFin) return false;
     if (ref === refCreation) return false;  // période de création, partielle
     return !estReussi(habit, entries, ref, refCourante);
   }).length;

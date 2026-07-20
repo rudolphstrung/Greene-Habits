@@ -324,13 +324,62 @@ test('une habitude archivée garde ses trahisons mais n\'en accumule plus', asyn
     }));
     s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1')
       .run(addDays(todayISO(), -10));
+    // Avant archivage : jours J-10 (création) à J0 (aujourd'hui) = 11 jours.
+    // Exclus : J-10 (création, partielle) et J0 (période en cours).
+    // Restent J-9..J-1 = 9 jours, tous non cochés → 9 trahisons.
     const avant = (await s.json('/api/state')).corps.leaderboard[0].trahisons;
+    assert.equal(avant, 9);
+
     // archivée à J-5 : les 5 derniers jours ne doivent plus compter
     s.db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = 1')
       .run(addDays(todayISO(), -5));
     const apres = (await s.json('/api/state')).corps.leaderboard[0].trahisons;
-    assert.ok(apres > 0, 'les trahisons passées restent comptées');
-    assert.ok(apres < avant, 'plus rien ne s\'accumule après archivage');
+    // Après archivage à J-5 : mêmes 11 jours (J-10..J0), mais désormais exclus :
+    //   - J-10 (création, partielle)
+    //   - J-5..J0 (période d'archivage J-5 elle-même, partielle au même titre
+    //     que la création, PLUS J-4..J-1 après l'archivage, PLUS J0 courante)
+    // Restent J-9, J-8, J-7, J-6 = 4 jours non cochés → exactement 4 trahisons.
+    assert.equal(apres, 4, 'la journée d\'archivage (J-5) est partielle, elle ne compte pas');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('une weekly archivée en milieu de semaine (1/3 séances) ne compte aucune trahison pour cette semaine', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 3
+    }));
+
+    // Ancrage dynamique sur la semaine courante pour ne pas dépendre d'une
+    // date en dur : semaineCourante = lundi de cette semaine (période en
+    // cours, jamais jugée). semaineArchivage = la semaine pleinement passée
+    // juste avant (donc dans le passé). semaineCreation = encore une semaine
+    // avant, pour que l'habitude existe "depuis plusieurs semaines" au moment
+    // de son archivage. Les trois semaines sont dans le mois calendaire en
+    // cours tant qu'aujourd'hui n'est pas dans les ~14 premiers jours du mois
+    // (vérifié : 2026-07-20, largement dans la seconde moitié de juillet).
+    const semaineCourante = mondayOf(todayISO());
+    const semaineArchivage = addDays(semaineCourante, -7);
+    const semaineCreation = addDays(semaineCourante, -14);
+    const mercrediArchivage = addDays(semaineArchivage, 2); // lundi + 2 = mercredi
+
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(semaineCreation);
+    // 1 séance sur les 3 requises pendant la semaine où l'habitude est arrêtée.
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: mercrediArchivage }));
+    // Archivée un mercredi, en milieu de semaine.
+    s.db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = 1').run(mercrediArchivage);
+
+    // toutesLesRefs = [semaineCreation, semaineArchivage, semaineCourante] :
+    // exactement 3 semaines (elles s'enchaînent de 7 en 7 jours). La semaine
+    // de création est exclue (partielle), la semaine courante est exclue
+    // (en cours), et désormais la semaine d'archivage est exclue elle aussi
+    // (partielle) malgré son 1/3 non atteint. Il ne reste donc RIEN à juger :
+    // 0 trahison, alors qu'avant le correctif cette semaine à 1/3 valait 1.
+    const { corps } = await s.json('/api/history?habit_id=1');
+    assert.equal(corps.trahisonsMois, 0,
+      'la semaine d\'archivage (1/3 séances) est partielle, elle ne doit pas compter comme trahison');
   } finally {
     await s.fermer();
   }
