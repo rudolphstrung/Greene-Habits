@@ -127,9 +127,11 @@ function creerBloc(titre, habits, avecEnteteJours) {
   return bloc;
 }
 
-function creerCard(joueur) {
+function creerCard(joueur, misEnAvant = false) {
   const card = document.createElement('section');
   card.className = 'card';
+  card.style.setProperty('--joueur', joueur.couleur);
+  if (misEnAvant) card.classList.add('card-mise-en-avant');
 
   const titre = document.createElement('button');
   titre.type = 'button';
@@ -155,6 +157,26 @@ function creerCard(joueur) {
   return card;
 }
 
+// Segment de l'URL (ex. `/anatole` → `anatole`), ou null pour `/` ou un
+// chemin vide. Ne fait aucune validation : un slug inconnu est traité comme
+// n'importe quel segment, ordonnerJoueurs() ne trouvera juste personne.
+function segmentJoueurURL() {
+  const segment = location.pathname.split('/').filter(Boolean)[0];
+  return segment ? segment.toLowerCase() : null;
+}
+
+// Aucun filtrage : tout le monde reste affiché, seul l'ordre change. Un slug
+// absent ou inconnu renvoie la liste telle quelle (ordre normal, pas d'erreur).
+function ordonnerJoueurs(joueurs, slug) {
+  if (!slug) return joueurs;
+  const index = joueurs.findIndex((j) => j.slug === slug);
+  if (index <= 0) return joueurs;
+  const copie = joueurs.slice();
+  const [promu] = copie.splice(index, 1);
+  copie.unshift(promu);
+  return copie;
+}
+
 function rendre() {
   document.getElementById('date-jour').textContent =
     new Date(`${etat.today}T12:00:00Z`).toLocaleDateString('fr-CH', {
@@ -165,7 +187,9 @@ function rendre() {
 
   const conteneur = document.getElementById('joueurs');
   conteneur.textContent = '';
-  etat.players.forEach((j) => conteneur.appendChild(creerCard(j)));
+  const slugCible = segmentJoueurURL();
+  ordonnerJoueurs(etat.players, slugCible)
+    .forEach((j) => conteneur.appendChild(creerCard(j, j.slug === slugCible)));
 }
 
 // --- Leaderboard mensuel ----------------------------------------------------
@@ -578,6 +602,17 @@ function rendreProfil(donnees) {
   titre.textContent = donnees.nom;
   titre.style.margin = '0';
   popupContenu.appendChild(titre);
+
+  // Le slug n'est pas renvoyé par /api/profile : on le relit dans l'état déjà
+  // chargé (/api/state) plutôt que de faire un aller-retour serveur dédié.
+  const joueurEtat = etat && etat.players.find((j) => j.id === donnees.id);
+  if (joueurEtat) {
+    const lien = document.createElement('a');
+    lien.className = 'profil-lien';
+    lien.href = `/${joueurEtat.slug}`;
+    lien.textContent = `${location.origin}/${joueurEtat.slug}`;
+    popupContenu.appendChild(lien);
+  }
 
   const trahisons = document.createElement('div');
   trahisons.className = 'profil-trahisons';

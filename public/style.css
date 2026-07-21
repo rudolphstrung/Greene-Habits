@@ -38,8 +38,17 @@ main {
 .card {
   background: var(--card);
   border: 1px solid var(--bord);
+  /* Couleur d'identité du joueur, posée en JS via --joueur : un liseré fin,
+     jamais un aplat, pour ne pas cannibaliser le contraste des points. */
+  border-left: 3px solid var(--joueur, var(--bord));
   border-radius: 16px;
   padding: 18px;
+}
+/* Carte mise en tête depuis l'URL (/<slug>) : accent discrètement renforcé,
+   pas de changement de fond — juste de quoi comprendre pourquoi elle est là. */
+.card-mise-en-avant {
+  border-left-width: 5px;
+  box-shadow: 0 0 0 1px var(--joueur);
 }
 .card-titre {
   display: block;
@@ -48,7 +57,7 @@ main {
   padding: 0;
   background: none;
   border: 0;
-  color: var(--texte);
+  color: var(--joueur, var(--texte));
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -363,6 +372,16 @@ main {
 }
 .profil-nom { flex: 1; }
 .profil-infos { color: var(--doux); font-size: 12px; white-space: nowrap; }
+
+.profil-lien {
+  display: block;
+  margin: 4px 0 10px;
+  color: var(--doux);
+  font-size: 12px;
+  text-decoration: none;
+  word-break: break-all;
+}
+.profil-lien:hover { color: var(--texte); text-decoration: underline; }
 
 .toast {
   position: fixed;
