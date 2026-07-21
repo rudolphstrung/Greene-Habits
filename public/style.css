@@ -6,7 +6,7 @@
   --doux: #8A8A93;
   --rate: #EF4444;
   --attente: #2A2A2E;
-  --cell: 22px;   /* côté d'un point (carré arrondi) */
+  --cell: 30px;   /* côté MAX d'un point (carré arrondi) — ils remplissent la largeur */
   --dot-gap: 6px; /* écart entre points, partagé entête/points pour l'alignement */
 }
 
@@ -85,19 +85,19 @@ main {
    sur les points. */
 .bloc-grille {
   display: grid;
-  /* Nom prioritaire (min 5.5em, ne se réduit qu'en dernier), points
-     compressibles (minmax 0 → ils rétrécissent avant le nom), streak au plus
-     juste. Sur écran étroit, ce sont les carrés qui rapetissent, pas le nom. */
-  grid-template-columns: minmax(5.5em, 1fr) minmax(0, auto) max-content;
+  /* Nom compact (largeur du texte, jamais tronqué), les points prennent TOUTE
+     la place restante et s'agrandissent/rétrécissent avec la carte, streak au
+     plus juste. Le nom et les cases restent collés (petit column-gap). */
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
   align-items: center;
   row-gap: 12px;
-  column-gap: 10px;
+  column-gap: 8px;
 }
 .habitude { display: contents; }
 
 .jours-entete {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, var(--cell)));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: var(--dot-gap);
   font-size: 9px;
   letter-spacing: 0.06em;
@@ -160,35 +160,35 @@ main {
 
 .points {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, var(--cell)));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  justify-items: center;   /* le carré, plafonné à --cell, se centre dans sa cellule */
   gap: var(--dot-gap);
 }
 .point {
-  width: 100%;          /* remplit sa cellule, plafonnée à --cell */
-  aspect-ratio: 1;      /* toujours carré, même en rétrécissant */
+  width: 100%;          /* remplit la cellule… */
+  max-width: var(--cell); /* …jusqu'à --cell, puis se centre */
+  aspect-ratio: 1;      /* toujours carré */
   padding: 0;
   border: 0;
-  border-radius: 6px;   /* carré arrondi */
+  border-radius: 7px;   /* carré arrondi */
   background: var(--attente);
   cursor: pointer;
   transition: transform 0.12s ease, opacity 0.12s ease;
 }
-.point:hover { transform: scale(1.15); }
+.point:hover { transform: scale(1.12); }
 .point:active { transform: scale(0.92); }
 .point.rate { background: var(--rate); }
 .point.futur { opacity: 0.35; cursor: not-allowed; }
 .point.futur:hover { transform: none; }
 
-/* Weekly : 4 semaines (en cours + 3 précédentes), même taille de carré. */
+/* Weekly : 4 semaines (en cours + 3 précédentes), mêmes carrés remplissant. */
 .points-weekly {
-  grid-template-columns: repeat(4, minmax(0, var(--cell)));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-/* Mobile : carrés plus petits pour laisser la place au nom complet, et
-   leaderboard rejeté tout en bas (les cartes d'abord, l'accès aux habitudes
-   prime sur le classement). */
+/* Mobile : leaderboard rejeté tout en bas (les cartes d'abord, l'accès aux
+   habitudes prime sur le classement). Le reste est identique à desktop. */
 @media (max-width: 520px) {
-  :root { --cell: 18px; --dot-gap: 4px; }
   body { display: flex; flex-direction: column; }
   header { order: 0; }
   main { order: 1; }
