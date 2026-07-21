@@ -85,16 +85,19 @@ main {
    sur les points. */
 .bloc-grille {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  /* Nom prioritaire (min 5.5em, ne se réduit qu'en dernier), points
+     compressibles (minmax 0 → ils rétrécissent avant le nom), streak au plus
+     juste. Sur écran étroit, ce sont les carrés qui rapetissent, pas le nom. */
+  grid-template-columns: minmax(5.5em, 1fr) minmax(0, auto) max-content;
   align-items: center;
   row-gap: 12px;
-  column-gap: 12px;
+  column-gap: 10px;
 }
 .habitude { display: contents; }
 
 .jours-entete {
   display: grid;
-  grid-template-columns: repeat(7, var(--cell));
+  grid-template-columns: repeat(7, minmax(0, var(--cell)));
   gap: var(--dot-gap);
   font-size: 9px;
   letter-spacing: 0.06em;
@@ -157,15 +160,15 @@ main {
 
 .points {
   display: grid;
-  grid-template-columns: repeat(7, var(--cell));
+  grid-template-columns: repeat(7, minmax(0, var(--cell)));
   gap: var(--dot-gap);
 }
 .point {
-  width: var(--cell);
-  height: var(--cell);
+  width: 100%;          /* remplit sa cellule, plafonnée à --cell */
+  aspect-ratio: 1;      /* toujours carré, même en rétrécissant */
   padding: 0;
   border: 0;
-  border-radius: 6px; /* carré arrondi */
+  border-radius: 6px;   /* carré arrondi */
   background: var(--attente);
   cursor: pointer;
   transition: transform 0.12s ease, opacity 0.12s ease;
@@ -178,7 +181,12 @@ main {
 
 /* Weekly : 4 semaines (en cours + 3 précédentes), même taille de carré. */
 .points-weekly {
-  grid-template-columns: repeat(4, var(--cell));
+  grid-template-columns: repeat(4, minmax(0, var(--cell)));
+}
+
+/* Mobile : carrés plus petits pour laisser la place au nom complet. */
+@media (max-width: 520px) {
+  :root { --cell: 18px; --dot-gap: 4px; }
 }
 
 .card-actions { margin-top: 4px; }
