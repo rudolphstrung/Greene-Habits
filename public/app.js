@@ -48,12 +48,12 @@ function creerPoint(habit, point) {
   return bouton;
 }
 
+// Une habitude = une seule ligne. `display: contents` (en CSS) fait remonter
+// ses 3 enfants — nom, points, streak — comme cellules de la grille du bloc,
+// pour que toutes les lignes s'alignent en colonnes.
 function creerHabitude(habit) {
   const bloc = document.createElement('div');
   bloc.className = 'habitude';
-
-  const entete = document.createElement('div');
-  entete.className = 'habitude-entete';
 
   const nomZone = document.createElement('div');
   nomZone.className = 'habitude-nom-zone';
@@ -81,6 +81,11 @@ function creerHabitude(habit) {
 
   nomZone.append(nom, supprimer);
 
+  const points = document.createElement('div');
+  // Daily : 7 colonnes alignées sous l'entête LU..DI. Weekly : 4 semaines.
+  points.className = habit.type === 'weekly' ? 'points points-weekly' : 'points';
+  habit.points.forEach((p) => points.appendChild(creerPoint(habit, p)));
+
   const meta = document.createElement('div');
   meta.className = 'habitude-meta';
   if (habit.type === 'weekly' && habit.courant < habit.objectif) {
@@ -92,15 +97,7 @@ function creerHabitude(habit) {
   streak.textContent = `🔥 ${habit.streak}`;
   meta.appendChild(streak);
 
-  entete.append(nomZone, meta);
-
-  const points = document.createElement('div');
-  // Daily : 7 colonnes alignées sous l'entête LU..DI. Weekly : 4 semaines,
-  // pas d'entête à suivre, sa propre grille.
-  points.className = habit.type === 'weekly' ? 'points points-weekly' : 'points';
-  habit.points.forEach((p) => points.appendChild(creerPoint(habit, p)));
-
-  bloc.append(entete, points);
+  bloc.append(nomZone, points, meta);
   return bloc;
 }
 
@@ -114,7 +111,13 @@ function creerBloc(titre, habits, avecEnteteJours) {
   label.textContent = titre;
   bloc.appendChild(label);
 
+  const grille = document.createElement('div');
+  grille.className = 'bloc-grille';
+
   if (avecEnteteJours) {
+    // Entête = 3 cellules de grille : colonne nom vide, les 7 jours (calés
+    // sur les points), colonne streak vide.
+    grille.appendChild(document.createElement('span'));
     const entete = document.createElement('div');
     entete.className = 'jours-entete';
     JOURS.forEach((j) => {
@@ -122,10 +125,12 @@ function creerBloc(titre, habits, avecEnteteJours) {
       cellule.textContent = j;
       entete.appendChild(cellule);
     });
-    bloc.appendChild(entete);
+    grille.appendChild(entete);
+    grille.appendChild(document.createElement('span'));
   }
 
-  habits.forEach((h) => bloc.appendChild(creerHabitude(h)));
+  habits.forEach((h) => grille.appendChild(creerHabitude(h)));
+  bloc.appendChild(grille);
   return bloc;
 }
 
