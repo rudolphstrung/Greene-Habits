@@ -33,9 +33,12 @@ export function currentWeekDays(todayISO) {
   return Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
 }
 
-export function lastSevenWeeks(todayISO) {
+// Les `count` dernières semaines, la semaine en cours en dernier (à droite),
+// les précédentes avant. Aucune semaine future. Ex. count=4 → 3 semaines
+// passées + la semaine en cours.
+export function lastWeeks(todayISO, count) {
   const lundi = mondayOf(todayISO);
-  return Array.from({ length: 7 }, (_, i) => addDays(lundi, (i - 6) * 7));
+  return Array.from({ length: count }, (_, i) => addDays(lundi, (i - (count - 1)) * 7));
 }
 
 export function allDaysSince(startISO, endISO) {

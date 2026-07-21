@@ -165,9 +165,13 @@ main {
 .point.rate { background: var(--rate); }
 .point.futur { opacity: 0.35; cursor: not-allowed; }
 .point.futur:hover { transform: none; }
-/* Période en cours : un anneau clair dit « c'est ici qu'on valide aujourd'hui ».
-   Neutre (ni vert ni rouge) pour ne pas se confondre avec un état de point. */
-.point.actuel { box-shadow: 0 0 0 2px var(--fond), 0 0 0 3px var(--doux); }
+
+/* Weekly : 4 semaines (en cours + 3 précédentes). Pas d'entête à suivre,
+   les points sont répartis et centrés dans leur propre grille. */
+.points-weekly {
+  grid-template-columns: repeat(4, 1fr);
+  justify-items: center;
+}
 
 .card-actions { margin-top: 4px; }
 .btn-discret {

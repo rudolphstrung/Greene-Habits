@@ -261,11 +261,15 @@ test('les points antérieurs à la création d\'une habitude ne sont pas cliquab
   }));
   const { corps } = await s.json('/api/state');
   const habit = corps.players[0].habits[0];
-  assert.equal(habit.points.length, 7);
+  // Weekly = 4 points : la semaine en cours + les 3 précédentes.
+  assert.equal(habit.points.length, 4);
 
   const refCourante = mondayOf(todayISO());
+  // La semaine en cours est le dernier point (à droite).
+  assert.equal(habit.points[3].ref, refCourante);
+
   const anterieurs = habit.points.filter((p) => p.ref !== refCourante);
-  assert.equal(anterieurs.length, 6);
+  assert.equal(anterieurs.length, 3);
   assert.ok(anterieurs.every((p) => p.cliquable === false));
 
   const courant = habit.points.find((p) => p.ref === refCourante);
@@ -273,7 +277,7 @@ test('les points antérieurs à la création d\'une habitude ne sont pas cliquab
   await s.fermer();
 });
 
-test('seul le point de la période en cours porte actuel=true', async () => {
+test('une habitude weekly n affiche aucune semaine future', async () => {
   const s = await demarrer();
   try {
     await s.json('/api/habits', s.post('/api/habits', {
@@ -281,11 +285,9 @@ test('seul le point de la période en cours porte actuel=true', async () => {
     }));
     const { corps } = await s.json('/api/state');
     const habit = corps.players[0].habits[0];
-    const actuels = habit.points.filter((p) => p.actuel);
-    assert.equal(actuels.length, 1, 'un seul point actuel');
-    assert.equal(actuels[0].ref, mondayOf(todayISO()));
-    // Le point actuel est aussi cliquable (c'est là qu'on valide aujourd'hui).
-    assert.equal(actuels[0].cliquable, true);
+    const refCourante = mondayOf(todayISO());
+    assert.ok(habit.points.every((p) => p.ref <= refCourante),
+      'aucun point postérieur à la semaine en cours');
   } finally {
     await s.fermer();
   }

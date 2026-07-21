@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   todayISO, mondayOf, addDays, currentWeekDays,
-  lastSevenWeeks, allDaysSince, allWeeksSince, firstOfMonth
+  lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
 } from '../src/dates.js';
 
 test('todayISO rend une date au format YYYY-MM-DD', () => {
@@ -44,11 +44,11 @@ test('currentWeekDays rend 7 jours du lundi au dimanche', () => {
   assert.equal(jours[6], '2026-07-19');
 });
 
-test('lastSevenWeeks finit par la semaine en cours', () => {
-  const semaines = lastSevenWeeks('2026-07-15');
-  assert.equal(semaines.length, 7);
-  assert.equal(semaines[6], '2026-07-13');
-  assert.equal(semaines[0], '2026-06-01');
+test('lastWeeks finit par la semaine en cours et n a pas de semaine future', () => {
+  const semaines = lastWeeks('2026-07-15', 4);
+  assert.equal(semaines.length, 4);
+  assert.equal(semaines[3], '2026-07-13'); // semaine en cours, à droite
+  assert.equal(semaines[0], '2026-06-22'); // 3 semaines avant
 });
 
 test('allDaysSince inclut les deux bornes', () => {

@@ -7,7 +7,7 @@ import {
   createPlayer, createHabit, updateHabit, archiveHabit, toggle, refFor, slugifier
 } from './db.js';
 import {
-  todayISO, currentWeekDays, lastSevenWeeks, allDaysSince, allWeeksSince, firstOfMonth
+  todayISO, currentWeekDays, lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
 } from './dates.js';
 import { dotState, computeStreak, successRate, bestStreak } from './state.js';
 
@@ -21,8 +21,13 @@ const TYPES_MIME = {
 
 // --- Assemblage de l'état -------------------------------------------------
 
+// Fenêtre affichée sur la carte : 7 jours (semaine en cours) pour une daily,
+// 4 semaines (la semaine en cours + les 3 précédentes) pour une weekly.
+const SEMAINES_AFFICHEES = 4;
 function fenetre(habit, aujourdhui) {
-  return habit.type === 'weekly' ? lastSevenWeeks(aujourdhui) : currentWeekDays(aujourdhui);
+  return habit.type === 'weekly'
+    ? lastWeeks(aujourdhui, SEMAINES_AFFICHEES)
+    : currentWeekDays(aujourdhui);
 }
 
 function toutesLesRefs(habit, aujourdhui) {
@@ -51,20 +56,16 @@ function pointsDe(habit, entries, refs, refCourante) {
     const count = entries[ref]?.count || 0;
     // Fenêtre exacte acceptée par toggle() : hors de là, le point n'est pas cliquable.
     const cliquable = ref >= refCreation && ref <= refCourante;
-    // La période en cours : le seul point « vivant » à valider aujourd'hui.
-    // Marqué pour que le front le signale — sinon on ne sait pas où cliquer,
-    // surtout sur une hebdo où il est isolé tout à droite.
-    const actuel = ref === refCourante;
     // Une période antérieure à la création n'existait pas.
     if (ref < refCreation) {
-      return { ref, count: 0, etat: 'attente', cliquable, actuel };
+      return { ref, count: 0, etat: 'attente', cliquable };
     }
     const reussi = estReussi(habit, entries, ref, refCourante);
     // La période de création est partielle : elle ne peut jamais être ratée.
     if (ref === refCreation) {
-      return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable, actuel };
+      return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable };
     }
-    return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable, actuel };
+    return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable };
   });
 }
 

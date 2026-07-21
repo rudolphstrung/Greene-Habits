@@ -45,8 +45,6 @@ function creerPoint(habit, point) {
   // Le serveur seul sait ce qui est cliquable (fenêtre créée→courante) :
   // futur ET périodes antérieures à la création de l'habitude.
   if (!point.cliquable) bouton.classList.add('futur');
-  // La période en cours : anneau pour montrer où cliquer aujourd'hui.
-  if (point.actuel) bouton.classList.add('actuel');
   return bouton;
 }
 
@@ -97,7 +95,9 @@ function creerHabitude(habit) {
   entete.append(nomZone, meta);
 
   const points = document.createElement('div');
-  points.className = 'points';
+  // Daily : 7 colonnes alignées sous l'entête LU..DI. Weekly : 4 semaines,
+  // pas d'entête à suivre, sa propre grille.
+  points.className = habit.type === 'weekly' ? 'points points-weekly' : 'points';
   habit.points.forEach((p) => points.appendChild(creerPoint(habit, p)));
 
   bloc.append(entete, points);
