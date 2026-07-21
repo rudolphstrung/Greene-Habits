@@ -45,6 +45,8 @@ function creerPoint(habit, point) {
   // Le serveur seul sait ce qui est cliquable (fenêtre créée→courante) :
   // futur ET périodes antérieures à la création de l'habitude.
   if (!point.cliquable) bouton.classList.add('futur');
+  // La période en cours : anneau pour montrer où cliquer aujourd'hui.
+  if (point.actuel) bouton.classList.add('actuel');
   return bouton;
 }
 

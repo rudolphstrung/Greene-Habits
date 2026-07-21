@@ -51,16 +51,20 @@ function pointsDe(habit, entries, refs, refCourante) {
     const count = entries[ref]?.count || 0;
     // Fenêtre exacte acceptée par toggle() : hors de là, le point n'est pas cliquable.
     const cliquable = ref >= refCreation && ref <= refCourante;
+    // La période en cours : le seul point « vivant » à valider aujourd'hui.
+    // Marqué pour que le front le signale — sinon on ne sait pas où cliquer,
+    // surtout sur une hebdo où il est isolé tout à droite.
+    const actuel = ref === refCourante;
     // Une période antérieure à la création n'existait pas.
     if (ref < refCreation) {
-      return { ref, count: 0, etat: 'attente', cliquable };
+      return { ref, count: 0, etat: 'attente', cliquable, actuel };
     }
     const reussi = estReussi(habit, entries, ref, refCourante);
     // La période de création est partielle : elle ne peut jamais être ratée.
     if (ref === refCreation) {
-      return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable };
+      return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable, actuel };
     }
-    return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable };
+    return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable, actuel };
   });
 }
 

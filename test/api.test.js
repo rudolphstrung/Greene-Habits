@@ -273,6 +273,24 @@ test('les points antérieurs à la création d\'une habitude ne sont pas cliquab
   await s.fermer();
 });
 
+test('seul le point de la période en cours porte actuel=true', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+    }));
+    const { corps } = await s.json('/api/state');
+    const habit = corps.players[0].habits[0];
+    const actuels = habit.points.filter((p) => p.actuel);
+    assert.equal(actuels.length, 1, 'un seul point actuel');
+    assert.equal(actuels[0].ref, mondayOf(todayISO()));
+    // Le point actuel est aussi cliquable (c'est là qu'on valide aujourd'hui).
+    assert.equal(actuels[0].cliquable, true);
+  } finally {
+    await s.fermer();
+  }
+});
+
 test('POST /api/toggle sur une date antérieure à la création rend toujours 400', async () => {
   const s = await demarrer();
   await s.json('/api/habits', s.post('/api/habits', {
