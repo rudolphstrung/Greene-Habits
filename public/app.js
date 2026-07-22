@@ -116,15 +116,9 @@ function creerHabitude(habit) {
   supprimer.className = 'btn-supprimer';
   supprimer.textContent = '×';
   supprimer.setAttribute('aria-label', `Supprimer ${habit.nom}`);
-  supprimer.addEventListener('click', async (e) => {
+  supprimer.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!confirm(`Supprimer « ${habit.nom} » ? Elle restera dans l'historique du profil.`)) return;
-    try {
-      await envoyer(`/api/habits/${habit.id}/archive`, {});
-      await recharger();
-    } catch (err) {
-      signaler(err.message);
-    }
+    menuSuppression(habit);
   });
 
   nomZone.append(nom, supprimer);
@@ -544,22 +538,48 @@ function rendreHistorique(donnees) {
   modifier.className = 'btn-principal';
   modifier.textContent = 'Modifier';
   modifier.addEventListener('click', () => formulaireEdition(donnees));
+  actions.appendChild(modifier);
 
-  const archiver = document.createElement('button');
-  archiver.className = 'btn-discret';
-  archiver.textContent = 'Archiver';
-  archiver.addEventListener('click', async () => {
-    if (!confirm(`Archiver « ${donnees.nom} » ? L'historique est conservé.`)) return;
+  // Archiver : seulement pour une habitude encore active.
+  if (!donnees.archived_at) {
+    const archiver = document.createElement('button');
+    archiver.className = 'btn-discret';
+    archiver.textContent = 'Archiver';
+    archiver.addEventListener('click', async () => {
+      if (!confirm(`Archiver « ${donnees.nom} » ? L'historique est conservé.`)) return;
+      try {
+        await envoyer(`/api/habits/${donnees.id}/archive`, {});
+        fermerPopup();
+        await recharger();
+      } catch (err) {
+        signaler(err.message);
+      }
+    });
+    actions.appendChild(archiver);
+  }
+
+  // Supprimer définitivement : disponible partout, y compris pour une ancienne
+  // habitude ouverte depuis le profil (c'est là qu'on supprime les archivées).
+  const supprimer = document.createElement('button');
+  supprimer.className = 'btn-danger';
+  supprimer.textContent = 'Supprimer définitivement';
+  supprimer.addEventListener('click', async () => {
+    if (!confirm(`Supprimer DÉFINITIVEMENT « ${donnees.nom} » ? Tout son historique sera perdu — irréversible.`)) return;
     try {
-      await envoyer(`/api/habits/${donnees.id}/archive`, {});
-      fermerPopup();
+      await envoyer(`/api/habits/${donnees.id}/delete`, {});
       await recharger();
+      // Si on venait du profil, y revenir (mis à jour) ; sinon fermer.
+      if (origineHistorique === 'profil' && profilOuvert !== null) {
+        window.ouvrirProfil(profilOuvert);
+      } else {
+        fermerPopup();
+      }
     } catch (err) {
       signaler(err.message);
     }
   });
+  actions.appendChild(supprimer);
 
-  actions.append(modifier, archiver);
   popupContenu.appendChild(actions);
 }
 
@@ -624,6 +644,58 @@ function fermerPopup() {
   habitOuverte = null;
   profilOuvert = null;
   origineHistorique = null;
+}
+
+// Menu au clic sur la croix : archiver (garde l'historique dans le profil) OU
+// supprimer définitivement (efface l'habitude et tout son historique).
+function menuSuppression(habit) {
+  popupContenu.textContent = '';
+  origineHistorique = null;
+  habitOuverte = null;
+  profilOuvert = null;
+  popup.classList.remove('cache');
+
+  const titre = document.createElement('h2');
+  titre.textContent = habit.nom;
+  titre.style.margin = '0';
+
+  const question = document.createElement('div');
+  question.className = 'note';
+  question.textContent = 'Que faire de cette habitude ?';
+
+  const actions = document.createElement('div');
+  actions.className = 'menu-suppression';
+
+  const archiver = document.createElement('button');
+  archiver.className = 'btn-principal';
+  archiver.textContent = 'Archiver (garder dans le profil)';
+  archiver.addEventListener('click', async () => {
+    try {
+      await envoyer(`/api/habits/${habit.id}/archive`, {});
+      fermerPopup();
+      await recharger();
+    } catch (err) { signaler(err.message); }
+  });
+
+  const supprimer = document.createElement('button');
+  supprimer.className = 'btn-danger';
+  supprimer.textContent = 'Supprimer définitivement';
+  supprimer.addEventListener('click', async () => {
+    if (!confirm(`Supprimer DÉFINITIVEMENT « ${habit.nom} » ? Tout son historique sera perdu — c'est irréversible.`)) return;
+    try {
+      await envoyer(`/api/habits/${habit.id}/delete`, {});
+      fermerPopup();
+      await recharger();
+    } catch (err) { signaler(err.message); }
+  });
+
+  const annuler = document.createElement('button');
+  annuler.className = 'btn-discret';
+  annuler.textContent = 'Annuler';
+  annuler.addEventListener('click', fermerPopup);
+
+  actions.append(archiver, supprimer, annuler);
+  popupContenu.append(titre, question, actions);
 }
 
 window.ouvrirHistorique = async (habitId, origine = null) => {

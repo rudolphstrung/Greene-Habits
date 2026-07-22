@@ -264,6 +264,17 @@ export function archiveHabit(db, id) {
   if (info.changes === 0) throw new Error('Habitude introuvable');
 }
 
+// Suppression DÉFINITIVE : efface l'habitude ET tout son historique (entries).
+// Irréversible — à distinguer de l'archivage (qui garde tout dans le profil).
+export function deleteHabit(db, id) {
+  const suppr = db.transaction((habitId) => {
+    db.prepare('DELETE FROM entries WHERE habit_id = ?').run(habitId);
+    return db.prepare('DELETE FROM habits WHERE id = ?').run(habitId);
+  });
+  const info = suppr(id);
+  if (info.changes === 0) throw new Error('Habitude introuvable');
+}
+
 // Renvoie { [date_ref]: { count, objectif } } — l'objectif est celui figé sur
 // l'entry au moment où elle a été écrite (cf. migrerObjectifEntries et toggle).
 export function getEntries(db, habitId) {

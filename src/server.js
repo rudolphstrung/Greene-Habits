@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   openDb, getPlayers, getHabits, getAllHabits, getHabit, getEntries, COULEURS,
-  createPlayer, createHabit, updateHabit, archiveHabit, toggle, refFor, slugifier
+  createPlayer, createHabit, updateHabit, archiveHabit, deleteHabit, toggle, refFor, slugifier
 } from './db.js';
 import {
   todayISO, currentWeekDays, lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
@@ -322,6 +322,12 @@ export function createServer(db) {
       if (req.method === 'PATCH' && majHabit) {
         const corps = await lireCorps(req);
         return envoyerJson(res, 200, updateHabit(db, Number(majHabit[1]), corps));
+      }
+
+      const suppr = chemin.match(/^\/api\/habits\/(\d+)\/delete$/);
+      if (req.method === 'POST' && suppr) {
+        deleteHabit(db, Number(suppr[1]));
+        return envoyerJson(res, 200, { ok: true });
       }
 
       const archive = chemin.match(/^\/api\/habits\/(\d+)\/archive$/);

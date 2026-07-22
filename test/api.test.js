@@ -208,6 +208,41 @@ test('POST /api/habits/:id/archive sur un id inexistant rend 400', async () => {
   await s.fermer();
 });
 
+test('POST /api/habits/:id/delete supprime définitivement l\'habitude ET son historique', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: todayISO() }));
+
+    const { statut } = await s.json('/api/habits/1/delete', s.post('/api/habits/1/delete', {}));
+    assert.equal(statut, 200);
+
+    // Absente de l'état ET du profil (ni active ni archivée).
+    const st = (await s.json('/api/state')).corps;
+    assert.equal(st.players[0].habits.length, 0);
+    const prof = (await s.json('/api/profile?player_id=1')).corps;
+    assert.equal(prof.actives.length + prof.archivees.length, 0);
+
+    // Entries effacées, et history → 404.
+    assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM entries WHERE habit_id = 1').get().n, 0);
+    assert.equal((await s.json('/api/history?habit_id=1')).statut, 404);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('POST /api/habits/:id/delete sur un id inexistant rend 400', async () => {
+  const s = await demarrer();
+  try {
+    const { statut } = await s.json('/api/habits/9999/delete', s.post('/api/habits/9999/delete', {}));
+    assert.equal(statut, 400);
+  } finally {
+    await s.fermer();
+  }
+});
+
 test('augmenter l\'objectif d\'une weekly ne repeint pas en rouge une semaine passée déjà réussie', async () => {
   const s = await demarrer();
   await s.json('/api/habits', s.post('/api/habits', {
