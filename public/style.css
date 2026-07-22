@@ -85,10 +85,11 @@ main {
    sur les points. */
 .bloc-grille {
   display: grid;
-  /* Nom compact (largeur du texte, jamais tronqué), les points prennent TOUTE
-     la place restante et s'agrandissent/rétrécissent avec la carte, streak au
-     plus juste. Le nom et les cases restent collés (petit column-gap). */
-  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  /* PRIORITÉ AUX CASES : elles ont une largeur minimale garantie (9.5rem) et
+     ne s'effondrent jamais, quelle que soit la taille de l'écran. C'est le NOM
+     qui plie : il se réduit puis passe sur 2 lignes (voir .habitude-nom).
+     Colonnes : [ nom (souple, →0) | cases (min garanti, remplit) | streak ]. */
+  grid-template-columns: minmax(0, max-content) minmax(9.5rem, 1fr) max-content max-content;
   align-items: center;
   row-gap: 12px;
   column-gap: 8px;
@@ -118,12 +119,22 @@ main {
   color: var(--texte);
   font: inherit;
   font-size: 14px;
+  line-height: 1.25;
   cursor: pointer;
   text-align: left;
   min-width: 0;
+  /* Plafond de largeur : au-delà, le nom passe sur 2 lignes plutôt que de
+     s'étaler et voler la place aux cases. C'est ce qui garde les carrés daily
+     à bonne taille. Un nom court reste collé aux cases (pas de vide). */
+  max-width: 11rem;
+  /* Le nom peut passer sur 2 lignes ; au-delà, « … ». `overflow-wrap: anywhere`
+     casse même un mot unique très long (ex. "khhjjjj…") pour qu'il n'impose
+     jamais sa largeur à la carte. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .habitude-nom:hover { color: var(--doux); }
 
@@ -180,6 +191,57 @@ main {
 .point.rate { background: var(--rate); }
 .point.futur { opacity: 0.35; cursor: not-allowed; }
 .point.futur:hover { transform: none; }
+/* La case de la période en cours = historique seul, validée par le bouton. */
+.point.actuel { cursor: default; }
+.point.actuel:hover { transform: none; }
+
+/* Bouton de validation de la période en cours (grande cible à droite). */
+.valider {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--bord);
+  border-radius: 9px;
+  background: none;
+  color: transparent;      /* coche masquée tant que non validé */
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.valider:hover { border-color: var(--h); color: var(--doux); }
+.valider.fait {
+  background: var(--h);
+  border-color: var(--h);
+  color: var(--fond);      /* coche sombre sur fond coloré */
+}
+.valider:active { transform: scale(0.9); }
+.valider:disabled { opacity: 0.3; cursor: default; }
+
+/* Gratification : pop du bouton + anneau qui s'expanse à la validation. */
+.valider.pop { animation: valider-pop 0.45s ease; }
+.valider.pop::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 11px;
+  border: 2px solid var(--h);
+  animation: valider-anneau 0.5s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes valider-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.35); }
+  60%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+@keyframes valider-anneau {
+  0%   { transform: scale(0.7); opacity: 0.85; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
 
 /* Weekly : 4 semaines (en cours + 3 précédentes), mêmes carrés remplissant. */
 .points-weekly {

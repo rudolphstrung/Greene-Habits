@@ -293,6 +293,22 @@ test('une habitude weekly n affiche aucune semaine future', async () => {
   }
 });
 
+test('seul le point de la période en cours porte actuel=true (pour le bouton valider)', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    const { corps } = await s.json('/api/state');
+    const habit = corps.players[0].habits[0];
+    const actuels = habit.points.filter((p) => p.actuel);
+    assert.equal(actuels.length, 1, 'un seul point actuel');
+    assert.equal(actuels[0].ref, todayISO());
+  } finally {
+    await s.fermer();
+  }
+});
+
 test('POST /api/toggle sur une date antérieure à la création rend toujours 400', async () => {
   const s = await demarrer();
   await s.json('/api/habits', s.post('/api/habits', {
@@ -357,23 +373,47 @@ test('une habitude archivée garde ses trahisons mais n\'en accumule plus', asyn
     s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1')
       .run(addDays(todayISO(), -10));
     // Avant archivage : jours J-10 (création) à J0 (aujourd'hui) = 11 jours.
-    // Exclus : J-10 (création, partielle) et J0 (période en cours).
-    // Restent J-9..J-1 = 9 jours, tous non cochés → 9 trahisons.
+    // Pour une QUOTIDIENNE, le jour de création compte : seul J0 (en cours) est
+    // exclu. Restent J-10..J-1 = 10 jours, tous non cochés → 10 trahisons.
     // Nicolas a désormais des trahisons donc il n'est plus forcément en tête
     // du classement (les 5 autres sont à 0) : on le cherche par nom.
     const avant = (await s.json('/api/state')).corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons;
-    assert.equal(avant, 9);
+    assert.equal(avant, 10);
 
     // archivée à J-5 : les 5 derniers jours ne doivent plus compter
     s.db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = 1')
       .run(addDays(todayISO(), -5));
     const apres = (await s.json('/api/state')).corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons;
-    // Après archivage à J-5 : mêmes 11 jours (J-10..J0), mais désormais exclus :
-    //   - J-10 (création, partielle)
-    //   - J-5..J0 (période d'archivage J-5 elle-même, partielle au même titre
-    //     que la création, PLUS J-4..J-1 après l'archivage, PLUS J0 courante)
-    // Restent J-9, J-8, J-7, J-6 = 4 jours non cochés → exactement 4 trahisons.
-    assert.equal(apres, 4, 'la journée d\'archivage (J-5) est partielle, elle ne compte pas');
+    // Après archivage à J-5 : mêmes 11 jours, exclus désormais :
+    //   - J-5..J0 (jour d'archivage J-5 partiel, + J-4..J-1 après archivage, + J0 courant)
+    // Le jour de création J-10 compte (quotidienne). Restent J-10, J-9, J-8,
+    // J-7, J-6 = 5 jours non cochés → exactement 5 trahisons.
+    assert.equal(apres, 5, 'la journée d\'archivage (J-5) est partielle, elle ne compte pas');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('jour de création : compte pour une quotidienne, grâce pour la semaine d\'une hebdo', async () => {
+  const s = await demarrer();
+  try {
+    // Quotidienne créée hier, non validée → hier (= jour de création) compte.
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -1));
+    const daily = (await s.json('/api/state')).corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons;
+    assert.equal(daily, 1, 'le jour de création d\'une quotidienne compte comme trahison');
+
+    // Hebdo créée la semaine dernière, objectif non atteint → semaine de
+    // création exemptée (grâce), donc 0 trahison.
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 2, nom: 'Sport', type: 'weekly', couleur: '#22C55E', objectif: 3
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 2')
+      .run(addDays(mondayOf(todayISO()), -7));
+    const weekly = (await s.json('/api/state')).corps.leaderboard.find((l) => l.nom === 'Axel').trahisons;
+    assert.equal(weekly, 0, 'la semaine de création d\'une hebdo garde sa grâce');
   } finally {
     await s.fermer();
   }

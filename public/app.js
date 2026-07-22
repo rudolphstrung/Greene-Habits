@@ -30,6 +30,51 @@ export async function recharger() {
   rendre();
 }
 
+// --- Validation de la période en cours (bouton à droite) ------------------
+
+// Petit arpège synthétisé (do-mi-sol) — gratification satisfaisante, aucun
+// fichier externe. L'AudioContext se crée au 1er clic (geste utilisateur).
+let audioCtx = null;
+function jouerSonSucces() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audioCtx = audioCtx || new Ctx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    [523.25, 659.25, 783.99].forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const start = t0 + i * 0.075;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.2, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.28);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(start);
+      osc.stop(start + 0.3);
+    });
+  } catch { /* audio indisponible : on ignore */ }
+}
+
+async function validerPeriode(habit, ref) {
+  const avant = habit.courant;
+  try {
+    const { count } = await envoyer('/api/toggle', { habit_id: habit.id, date_ref: ref });
+    const enAvant = count > avant; // progression (pas une remise à zéro)
+    await recharger();
+    if (window.rafraichirHistorique) window.rafraichirHistorique();
+    if (enAvant) {
+      jouerSonSucces();
+      const btn = document.querySelector(`.valider[data-habit="${habit.id}"]`);
+      if (btn) { btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop'); }
+    }
+  } catch (err) {
+    signaler(err.message);
+  }
+}
+
 // --- Rendu ----------------------------------------------------------------
 
 function creerPoint(habit, point) {
@@ -45,6 +90,9 @@ function creerPoint(habit, point) {
   // Le serveur seul sait ce qui est cliquable (fenêtre créée→courante) :
   // futur ET périodes antérieures à la création de l'habitude.
   if (!point.cliquable) bouton.classList.add('futur');
+  // La case de la période EN COURS n'est plus cliquable : c'est le bouton
+  // « valider » à droite qui la valide. Elle reste affichée (historique).
+  if (point.actuel) bouton.classList.add('actuel');
   return bouton;
 }
 
@@ -97,7 +145,25 @@ function creerHabitude(habit) {
   streak.textContent = `🔥 ${habit.streak}`;
   meta.appendChild(streak);
 
-  bloc.append(nomZone, points, meta);
+  // Bouton de validation de la période EN COURS (grande cible à droite).
+  const pointActuel = habit.points.find((p) => p.actuel);
+  const valider = document.createElement('button');
+  valider.type = 'button';
+  valider.className = 'valider';
+  valider.dataset.habit = habit.id;
+  valider.textContent = '✔';
+  valider.style.setProperty('--h', habit.couleur);
+  const fait = habit.courant >= habit.objectif;
+  if (fait) valider.classList.add('fait');
+  valider.setAttribute('aria-label',
+    fait ? `Annuler la validation de ${habit.nom}` : `Valider ${habit.nom} pour la période en cours`);
+  if (pointActuel) {
+    valider.addEventListener('click', () => validerPeriode(habit, pointActuel.ref));
+  } else {
+    valider.disabled = true; // période en cours hors fenêtre (ne devrait pas arriver)
+  }
+
+  bloc.append(nomZone, points, meta, valider);
   return bloc;
 }
 
@@ -115,8 +181,8 @@ function creerBloc(titre, habits, avecEnteteJours) {
   grille.className = 'bloc-grille';
 
   if (avecEnteteJours) {
-    // Entête = 3 cellules de grille : colonne nom vide, les 7 jours (calés
-    // sur les points), colonne streak vide.
+    // Entête = 4 cellules de grille : colonne nom vide, les 7 jours (calés
+    // sur les points), colonne streak vide, colonne bouton valider vide.
     grille.appendChild(document.createElement('span'));
     const entete = document.createElement('div');
     entete.className = 'jours-entete';
@@ -126,6 +192,7 @@ function creerBloc(titre, habits, avecEnteteJours) {
       entete.appendChild(cellule);
     });
     grille.appendChild(entete);
+    grille.appendChild(document.createElement('span'));
     grille.appendChild(document.createElement('span'));
   }
 
@@ -355,7 +422,9 @@ function formulaireHabitude(card, playerId, declencheur) {
 
 document.addEventListener('click', async (e) => {
   const point = e.target.closest('.point');
-  if (!point || point.classList.contains('futur')) return;
+  // On ne valide plus la période EN COURS en cliquant sa case (`.actuel`) :
+  // c'est le rôle du bouton « valider ». Les cases passées restent corrigibles.
+  if (!point || point.classList.contains('futur') || point.classList.contains('actuel')) return;
   try {
     await envoyer('/api/toggle', {
       habit_id: Number(point.dataset.habit),

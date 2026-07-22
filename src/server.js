@@ -16,7 +16,10 @@ const RACINE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'pu
 const TYPES_MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8'
+  '.js': 'text/javascript; charset=utf-8',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml'
 };
 
 // --- Assemblage de l'état -------------------------------------------------
@@ -56,16 +59,21 @@ function pointsDe(habit, entries, refs, refCourante) {
     const count = entries[ref]?.count || 0;
     // Fenêtre exacte acceptée par toggle() : hors de là, le point n'est pas cliquable.
     const cliquable = ref >= refCreation && ref <= refCourante;
+    // La période en cours : c'est le bouton « valider » (à droite) qui l'actionne,
+    // pas un clic sur la case. Le front s'en sert pour savoir quoi valider.
+    const actuel = ref === refCourante;
     // Une période antérieure à la création n'existait pas.
     if (ref < refCreation) {
-      return { ref, count: 0, etat: 'attente', cliquable };
+      return { ref, count: 0, etat: 'attente', cliquable, actuel };
     }
     const reussi = estReussi(habit, entries, ref, refCourante);
-    // La période de création est partielle : elle ne peut jamais être ratée.
-    if (ref === refCreation) {
-      return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable };
+    // Grâce sur la période de création UNIQUEMENT pour les hebdos : une semaine
+    // entamée à sa création est partielle. Pour une quotidienne, le jour de
+    // création est un jour comme un autre (raté = rouge).
+    if (habit.type === 'weekly' && ref === refCreation) {
+      return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable, actuel };
     }
-    return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable };
+    return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable, actuel };
   });
 }
 
@@ -74,9 +82,12 @@ function pointsDe(habit, entries, refs, refCourante) {
 // directement la séquence de booléens attendue par computeStreak/bestStreak/successRate.
 function reussitesPourStats(habit, entries, refs, refCourante) {
   const refCreation = refFor(habit, habit.created_at);
-  const utiles = estReussi(habit, entries, refCreation, refCourante)
-    ? refs
-    : refs.filter((r) => r !== refCreation);
+  // Grâce sur la semaine de création (hebdo seulement) si elle n'a pas été
+  // atteinte : elle ne compte ni comme réussite ni comme échec. Pour une
+  // quotidienne, le jour de création compte normalement.
+  const graceCreation = habit.type === 'weekly'
+    && !estReussi(habit, entries, refCreation, refCourante);
+  const utiles = graceCreation ? refs.filter((r) => r !== refCreation) : refs;
   return utiles.map((ref) => estReussi(habit, entries, ref, refCourante));
 }
 
@@ -98,7 +109,9 @@ function trahisonsDeLHabitude(habit, entries, aujourdhui) {
     // La période d'archivage est partielle au même titre que celle de création :
     // l'habitude a été arrêtée en cours de route, on ne la juge pas dessus.
     if (habit.archived_at && ref >= refFin) return false;
-    if (ref === refCreation) return false;  // période de création, partielle
+    // Grâce sur la semaine de création (hebdo seulement) : partielle. Pour une
+    // quotidienne, le jour de création compte comme n'importe quel jour.
+    if (habit.type === 'weekly' && ref === refCreation) return false;
     return !estReussi(habit, entries, ref, refCourante);
   }).length;
 }
