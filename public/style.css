@@ -191,9 +191,7 @@ main {
 .point.rate { background: var(--rate); }
 .point.futur { opacity: 0.35; cursor: not-allowed; }
 .point.futur:hover { transform: none; }
-/* La case de la période en cours = historique seul, validée par le bouton. */
-.point.actuel { cursor: default; }
-.point.actuel:hover { transform: none; }
+/* La case de la période en cours est cliquable comme le bouton (validation). */
 
 /* Bouton de validation de la période en cours (grande cible à droite). */
 .valider {

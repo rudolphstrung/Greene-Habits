@@ -416,14 +416,22 @@ function formulaireHabitude(card, playerId, declencheur) {
 
 document.addEventListener('click', async (e) => {
   const point = e.target.closest('.point');
-  // On ne valide plus la période EN COURS en cliquant sa case (`.actuel`) :
-  // c'est le rôle du bouton « valider ». Les cases passées restent corrigibles.
-  if (!point || point.classList.contains('futur') || point.classList.contains('actuel')) return;
+  if (!point || point.classList.contains('futur')) return;
+  const habitId = Number(point.dataset.habit);
+  const ref = point.dataset.ref;
+
+  // Case de la période EN COURS : même validation que le bouton (son + anim).
+  if (point.classList.contains('actuel')) {
+    const habit = etat && etat.players
+      .flatMap((p) => p.habits)
+      .find((h) => h.id === habitId);
+    if (habit) validerPeriode(habit, ref);
+    return;
+  }
+
+  // Cases passées : simple correction (bascule + rechargement).
   try {
-    await envoyer('/api/toggle', {
-      habit_id: Number(point.dataset.habit),
-      date_ref: point.dataset.ref
-    });
+    await envoyer('/api/toggle', { habit_id: habitId, date_ref: ref });
     await recharger();
     if (window.rafraichirHistorique) window.rafraichirHistorique();
   } catch (err) {
