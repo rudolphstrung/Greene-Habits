@@ -254,6 +254,19 @@ main {
   main { order: 1; }
   .pied { order: 2; }
   .leaderboard { order: 3; margin: 20px 0 0; }
+
+  /* La colonne "nom" du bloc-grille a un plancher de largeur de 0 (voir
+     .bloc-grille), donc elle s'écrase en premier sur petit écran — jusqu'à
+     un retour à la ligne caractère par caractère. Fix : le nom passe en
+     pleine largeur sur sa propre ligne, au-dessus de cases/streak/validation
+     qu'on repointe explicitement sur leurs colonnes d'origine (2/3/4) pour
+     qu'ils restent alignés sous l'entête des jours malgré le décalage
+     d'auto-placement provoqué par le span du nom. */
+  .habitude-nom-zone { grid-column: 1 / -1; }
+  .points { grid-column: 2; }
+  .habitude-meta { grid-column: 3; }
+  .valider { grid-column: 4; }
+  .habitude-nom { max-width: none; }
 }
 
 .card-actions { margin-top: 4px; }
