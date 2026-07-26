@@ -32,6 +32,11 @@ export async function recharger() {
 
 // --- Validation de la période en cours (bouton à droite) ------------------
 
+function toutesDailyComplete(joueur) {
+  const dailies = joueur.habits.filter((h) => h.type === 'daily');
+  return dailies.length > 0 && dailies.every((h) => h.courant >= h.objectif);
+}
+
 // Petit arpège synthétisé (do-mi-sol) — gratification satisfaisante, aucun
 // fichier externe. L'AudioContext se crée au 1er clic (geste utilisateur).
 let audioCtx = null;
@@ -58,8 +63,68 @@ function jouerSonSucces() {
   } catch { /* audio indisponible : on ignore */ }
 }
 
+// Son plus riche que jouerSonSucces (validation individuelle) : 5 notes
+// ascendantes avec une tenue finale plus longue, pour bien se distinguer.
+function jouerSonJournee() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audioCtx = audioCtx || new Ctx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    [523.25, 659.25, 783.99, 1046.5, 1318.51].forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const start = t0 + i * 0.09;
+      const duree = i === 4 ? 0.6 : 0.28;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duree);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(start);
+      osc.stop(start + duree + 0.05);
+    });
+  } catch { /* audio indisponible : on ignore */ }
+}
+
+const COULEURS_CONFETTI_FESTIVES = ['#FFD700', '#FFFFFF'];
+
+// Confettis positionnés en `fixed` et calés sur getBoundingClientRect() de la
+// carte : évite d'être coupés par le border-radius/overflow de .card.
+function lancerConfettis(carte, couleurJoueur) {
+  const rect = carte.getBoundingClientRect();
+  const palette = [couleurJoueur, ...COULEURS_CONFETTI_FESTIVES];
+  for (let i = 0; i < 24; i++) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti';
+    const gauche = rect.left + Math.random() * rect.width;
+    const duree = 0.8 + Math.random() * 0.6;
+    const delai = Math.random() * 0.15;
+    const rotation = Math.random() * 360;
+    piece.style.left = `${gauche}px`;
+    piece.style.top = `${rect.top}px`;
+    piece.style.background = palette[Math.floor(Math.random() * palette.length)];
+    piece.style.setProperty('--duree', `${duree}s`);
+    piece.style.setProperty('--delai', `${delai}s`);
+    piece.style.setProperty('--rotation', `${rotation}deg`);
+    piece.style.setProperty('--chute', `${rect.height + 40}px`);
+    document.body.appendChild(piece);
+    setTimeout(() => piece.remove(), (duree + delai) * 1000 + 50);
+  }
+}
+
+function celebrerJournee(joueur) {
+  const carte = document.querySelector(`.card[data-joueur="${joueur.id}"]`);
+  if (carte) lancerConfettis(carte, joueur.couleur);
+  jouerSonJournee();
+}
+
 async function validerPeriode(habit, ref) {
   const avant = habit.courant;
+  const joueurAvant = etat.players.find((p) => p.habits.some((h) => h.id === habit.id));
+  const completAvant = toutesDailyComplete(joueurAvant);
   try {
     const { count } = await envoyer('/api/toggle', { habit_id: habit.id, date_ref: ref });
     const enAvant = count > avant; // progression (pas une remise à zéro)
@@ -69,6 +134,10 @@ async function validerPeriode(habit, ref) {
       jouerSonSucces();
       const btn = document.querySelector(`.valider[data-habit="${habit.id}"]`);
       if (btn) { btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop'); }
+      const joueurApres = etat.players.find((p) => p.id === joueurAvant.id);
+      if (!completAvant && toutesDailyComplete(joueurApres)) {
+        celebrerJournee(joueurApres);
+      }
     }
   } catch (err) {
     signaler(err.message);
@@ -199,6 +268,7 @@ function creerCard(joueur, misEnAvant = false) {
   const card = document.createElement('section');
   card.className = 'card';
   card.style.setProperty('--joueur', joueur.couleur);
+  card.dataset.joueur = joueur.id;
   if (misEnAvant) card.classList.add('card-mise-en-avant');
 
   const titre = document.createElement('button');

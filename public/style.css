@@ -241,6 +241,22 @@ main {
   100% { transform: scale(1.9); opacity: 0; }
 }
 
+/* Confettis de célébration : toutes les habitudes DAILY du jour validées. */
+.confetti {
+  position: fixed;
+  width: 7px;
+  height: 12px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 25;
+  transform: rotate(var(--rotation));
+  animation: confetti-chute var(--duree) var(--delai) ease-in forwards;
+}
+@keyframes confetti-chute {
+  0%   { transform: translateY(0) rotate(var(--rotation)); opacity: 1; }
+  100% { transform: translateY(var(--chute)) rotate(calc(var(--rotation) + 200deg)); opacity: 0; }
+}
+
 /* Weekly : 4 semaines (en cours + 3 précédentes), mêmes carrés remplissant. */
 .points-weekly {
   grid-template-columns: repeat(4, minmax(0, 1fr));
