@@ -121,7 +121,20 @@ function celebrerJournee(joueur) {
   jouerSonJournee();
 }
 
+// Sérialisation des validations pour éviter les conditions de course :
+// Si deux habitudes sont validées rapidement en succession, chaque appel
+// attend que le précédent ait complètement fini (capture → API → recharge)
+// avant de commencer. Cela évite que deux appels ne capturent le même
+// état pré-mutation et ne déclenchent la célébration deux fois.
+let filesAttenteValidation = Promise.resolve();
+
 async function validerPeriode(habit, ref) {
+  const tache = filesAttenteValidation.then(() => executerValidation(habit, ref));
+  filesAttenteValidation = tache.catch(() => {}); // une erreur ne bloque pas la file
+  return tache;
+}
+
+async function executerValidation(habit, ref) {
   const avant = habit.courant;
   const joueurAvant = etat.players.find((p) => p.habits.some((h) => h.id === habit.id));
   const completAvant = toutesDailyComplete(joueurAvant);
