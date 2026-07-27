@@ -602,6 +602,25 @@ function bloqueStat(valeur, label) {
   return bloc;
 }
 
+// Bloc "Je vais... / Moment-lieu / pour devenir..." affiché sous le titre
+// dans le popup historique — null si les 3 champs sont vides (rien à montrer).
+function creerBlocIntention(donnees) {
+  const lignes = [];
+  if (donnees.note) lignes.push(`Je vais... ${donnees.note}`);
+  if (donnees.moment_lieu) lignes.push(`Moment/lieu : ${donnees.moment_lieu}`);
+  if (donnees.identite) lignes.push(`pour devenir... ${donnees.identite}`);
+  if (lignes.length === 0) return null;
+
+  const bloc = document.createElement('div');
+  bloc.className = 'note';
+  lignes.forEach((texte) => {
+    const ligne = document.createElement('div');
+    ligne.textContent = texte;
+    bloc.appendChild(ligne);
+  });
+  return bloc;
+}
+
 function rendreHistorique(donnees) {
   popupContenu.textContent = '';
 
@@ -619,12 +638,8 @@ function rendreHistorique(donnees) {
   titre.style.margin = '0';
   popupContenu.appendChild(titre);
 
-  if (donnees.note) {
-    const note = document.createElement('div');
-    note.className = 'note';
-    note.textContent = donnees.note;
-    popupContenu.appendChild(note);
-  }
+  const blocIntention = creerBlocIntention(donnees);
+  if (blocIntention) popupContenu.appendChild(blocIntention);
 
   const stats = document.createElement('div');
   stats.className = 'stats';
