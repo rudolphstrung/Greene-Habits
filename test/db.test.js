@@ -171,6 +171,83 @@ test('updateHabit modifie la note', () => {
   assert.equal(getHabit(db, habit.id).note, 'après');
 });
 
+test('createHabit enregistre moment_lieu et identite', () => {
+  const { db, habit } = baseAvecHabitude({
+    moment_lieu: 'chaque matin au réveil',
+    identite: 'quelqu\'un de discipliné'
+  });
+  const h = getHabit(db, habit.id);
+  assert.equal(h.moment_lieu, 'chaque matin au réveil');
+  assert.equal(h.identite, 'quelqu\'un de discipliné');
+});
+
+test('une habitude sans moment_lieu ni identite a des chaînes vides, pas null', () => {
+  const { db, habit } = baseAvecHabitude();
+  const h = getHabit(db, habit.id);
+  assert.equal(h.moment_lieu, '');
+  assert.equal(h.identite, '');
+});
+
+test('updateHabit modifie moment_lieu et identite', () => {
+  const { db, habit } = baseAvecHabitude({ moment_lieu: 'avant', identite: 'avant' });
+  updateHabit(db, habit.id, {
+    nom: 'Lecture', couleur: '#4C6FFF', objectif: 1,
+    moment_lieu: 'après', identite: 'après'
+  });
+  const h = getHabit(db, habit.id);
+  assert.equal(h.moment_lieu, 'après');
+  assert.equal(h.identite, 'après');
+});
+
+test('la migration ajoute moment_lieu et identite sur une base existante sans perdre la note', () => {
+  const fichier = path.join(os.tmpdir(), `greene-migration-intention-test-${Date.now()}-${Math.random()}.db`);
+  try {
+    // Simule une base créée AVANT l'ajout de moment_lieu/identite, mais après
+    // l'ajout de note/archived_at (schéma intermédiaire réaliste).
+    const ancienne = new Database(fichier);
+    ancienne.exec(`
+      CREATE TABLE players (
+        id INTEGER PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#4C6FFF',
+        created_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE habits (
+        id INTEGER PRIMARY KEY, player_id INTEGER NOT NULL, nom TEXT NOT NULL, type TEXT NOT NULL,
+        couleur TEXT NOT NULL, objectif INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', archived_at TEXT
+      );
+      CREATE TABLE entries (
+        id INTEGER PRIMARY KEY, habit_id INTEGER NOT NULL, date_ref TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0, objectif INTEGER,
+        UNIQUE (habit_id, date_ref)
+      );
+    `);
+    ancienne.prepare(`INSERT INTO players (id, nom, couleur, created_at) VALUES (1, 'Anatole', '#22C55E', '2026-01-01')`).run();
+    ancienne.prepare(
+      `INSERT INTO habits (id, player_id, nom, type, couleur, objectif, created_at, note)
+       VALUES (1, 1, 'Sport', 'weekly', '#4C6FFF', 3, '2026-01-01', 'ancienne note')`
+    ).run();
+    ancienne.close();
+
+    const db = openDb(fichier);
+    const habit = getHabit(db, 1);
+    assert.equal(habit.note, 'ancienne note'); // note existante conservée telle quelle
+    assert.equal(habit.moment_lieu, '');
+    assert.equal(habit.identite, '');
+    db.close();
+
+    // Deuxième ouverture : idempotente, ne casse rien et ne duplique rien.
+    const db2 = openDb(fichier);
+    const habit2 = getHabit(db2, 1);
+    assert.equal(habit2.note, 'ancienne note');
+    assert.equal(habit2.moment_lieu, '');
+    db2.close();
+  } finally {
+    fs.rmSync(fichier, { force: true });
+    fs.rmSync(`${fichier}-shm`, { force: true });
+    fs.rmSync(`${fichier}-wal`, { force: true });
+  }
+});
+
 test('archiveHabit pose la date d archivage', () => {
   const { db, habit } = baseAvecHabitude();
   archiveHabit(db, habit.id);
