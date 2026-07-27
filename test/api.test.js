@@ -156,48 +156,64 @@ test('une route inconnue rend 404', async () => {
 
 test('la semaine de création d\'une weekly non atteinte est en attente, jamais ratée, et ne pénalise pas le taux', async () => {
   const s = await demarrer();
-  await s.json('/api/habits', s.post('/api/habits', {
-    player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 3
-  }));
-  // Recule la création à un mercredi, deux semaines avant aujourd'hui (lundi 2026-07-20).
-  s.db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run('2026-07-08', 1);
-  // Semaine de création (lundi 2026-07-06) : seulement 2 séances sur les 3 requises.
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-06' }));
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-06' }));
-  // Semaine suivante (lundi 2026-07-13) : objectif pleinement atteint.
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-13' }));
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-13' }));
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-13' }));
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 3
+    }));
+    // Ancrage dynamique sur la semaine courante (jamais une date en dur, qui
+    // se périme au fil des semaines) : semaineCreation = 2 semaines avant la
+    // semaine en cours, semaineIntermediaire = la semaine pleinement écoulée
+    // entre les deux.
+    const semaineCourante = mondayOf(todayISO());
+    const semaineIntermediaire = addDays(semaineCourante, -7);
+    const semaineCreation = addDays(semaineCourante, -14);
+    // Recule la création à un mercredi de sa semaine.
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(semaineCreation, 2), 1);
+    // Semaine de création : seulement 2 séances sur les 3 requises.
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: semaineCreation }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: semaineCreation }));
+    // Semaine suivante : objectif pleinement atteint.
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: semaineIntermediaire }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: semaineIntermediaire }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: semaineIntermediaire }));
 
-  const { corps } = await s.json('/api/history?habit_id=1');
-  const semaineCreation = corps.points.find((p) => p.ref === '2026-07-06');
-  assert.equal(semaineCreation.etat, 'attente');
-  assert.ok(!corps.points.some((p) => p.etat === 'rate'));
-  // Sans la semaine de création non atteinte, la seule semaine écoulée
-  // (2026-07-13, réussie) donne 100 %, pas 50 % : la création n'est pas
-  // comptée comme un échec.
-  assert.equal(corps.taux, 100);
-  assert.equal(corps.streak, 1);
-  await s.fermer();
+    const { corps } = await s.json('/api/history?habit_id=1');
+    const pointCreation = corps.points.find((p) => p.ref === semaineCreation);
+    assert.equal(pointCreation.etat, 'attente');
+    assert.ok(!corps.points.some((p) => p.etat === 'rate'));
+    // Sans la semaine de création non atteinte, la seule semaine écoulée
+    // (semaineIntermediaire, réussie) donne 100 %, pas 50 % : la création
+    // n'est pas comptée comme un échec.
+    assert.equal(corps.taux, 100);
+    assert.equal(corps.streak, 1);
+  } finally {
+    await s.fermer();
+  }
 });
 
 test('une weekly dont la semaine de création est atteinte compte comme un succès partout', async () => {
   const s = await demarrer();
-  await s.json('/api/habits', s.post('/api/habits', {
-    player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 3
-  }));
-  s.db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run('2026-07-15', 1);
-  // Semaine de création (lundi 2026-07-13) : objectif atteint malgré la
-  // création en milieu de semaine.
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-15' }));
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-16' }));
-  await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: '2026-07-17' }));
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 3
+    }));
+    // Ancrage dynamique : la semaine de création est celle juste avant la
+    // semaine en cours (jamais une date en dur, qui se périme).
+    const semaineCourante = mondayOf(todayISO());
+    const semaineCreation = addDays(semaineCourante, -7);
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(semaineCreation, 2), 1);
+    // Semaine de création : objectif atteint malgré la création en milieu de semaine.
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: addDays(semaineCreation, 2) }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: addDays(semaineCreation, 3) }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: addDays(semaineCreation, 4) }));
 
-  const { corps } = await s.json('/api/history?habit_id=1');
-  const semaineCreation = corps.points.find((p) => p.ref === '2026-07-13');
-  assert.equal(semaineCreation.etat, 'reussi');
-  assert.equal(corps.streak, 1);
-  await s.fermer();
+    const { corps } = await s.json('/api/history?habit_id=1');
+    const pointCreation = corps.points.find((p) => p.ref === semaineCreation);
+    assert.equal(pointCreation.etat, 'reussi');
+    assert.equal(corps.streak, 1);
+  } finally {
+    await s.fermer();
+  }
 });
 
 test('POST /api/habits/:id/archive sur un id inexistant rend 400', async () => {
