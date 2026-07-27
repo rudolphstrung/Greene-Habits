@@ -524,6 +524,41 @@ test('la note est enregistrée à la création et rendue par history', async () 
   }
 });
 
+test('moment_lieu et identite sont enregistrés à la création et rendus par history', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF',
+      objectif: 1, note: '10 pages avant de dormir',
+      moment_lieu: 'chaque soir au lit', identite: 'quelqu\'un de cultivé'
+    }));
+    const { corps } = await s.json('/api/history?habit_id=1');
+    assert.equal(corps.moment_lieu, 'chaque soir au lit');
+    assert.equal(corps.identite, 'quelqu\'un de cultivé');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('PATCH /api/habits/:id modifie moment_lieu et identite', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+    }));
+    const { statut } = await s.json('/api/habits/1', s.post('/api/habits/1', {
+      nom: 'Sport', couleur: '#4C6FFF', objectif: 2,
+      moment_lieu: 'le lundi soir', identite: 'quelqu\'un de régulier'
+    }, 'PATCH'));
+    assert.equal(statut, 200);
+    const { corps } = await s.json('/api/history?habit_id=1');
+    assert.equal(corps.moment_lieu, 'le lundi soir');
+    assert.equal(corps.identite, 'quelqu\'un de régulier');
+  } finally {
+    await s.fermer();
+  }
+});
+
 test('le profil rend les habitudes actives et archivées séparément', async () => {
   const s = await demarrer();
   try {

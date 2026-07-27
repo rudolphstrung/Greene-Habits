@@ -184,6 +184,8 @@ function statsHabit(habit, entries, aujourdhui) {
     couleur: habit.couleur,
     objectif: habit.objectif,
     note: habit.note,
+    moment_lieu: habit.moment_lieu,
+    identite: habit.identite,
     archived_at: habit.archived_at,
     streak: computeStreak(reussites),
     record: bestStreak(reussites),
