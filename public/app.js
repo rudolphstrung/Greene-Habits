@@ -721,9 +721,9 @@ function formulaireEdition(donnees) {
   objectif.value = donnees.objectif;
   if (donnees.type !== 'weekly') objectif.classList.add('cache');
 
-  const note = document.createElement('input');
-  note.placeholder = 'Note — à quoi t\'engages-tu ? (optionnel)';
-  note.value = donnees.note || '';
+  const intentionNote = creerChampIntention('Je vais...', 'méditer 10 minutes chaque matin', donnees.note || '');
+  const intentionMomentLieu = creerChampIntention(null, 'Moment / lieu (optionnel)', donnees.moment_lieu || '');
+  const intentionIdentite = creerChampIntention('pour devenir...', 'type de personne que je veux devenir (optionnel)', donnees.identite || '');
 
   const boutons = document.createElement('div');
   boutons.className = 'formulaire-boutons';
@@ -738,7 +738,11 @@ function formulaireEdition(donnees) {
   annuler.addEventListener('click', () => { window.rafraichirHistorique().catch((err) => signaler(err.message)); });
   boutons.append(valider, annuler);
 
-  form.append(nom, couleur.zone, objectif, note, boutons);
+  form.append(
+    nom, couleur.zone, objectif,
+    intentionNote.conteneur, intentionMomentLieu.conteneur, intentionIdentite.conteneur,
+    boutons
+  );
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -747,7 +751,9 @@ function formulaireEdition(donnees) {
         nom: nom.value,
         couleur: couleur.valeur(),
         objectif: Number(objectif.value),
-        note: note.value
+        note: intentionNote.champ.value,
+        moment_lieu: intentionMomentLieu.champ.value,
+        identite: intentionIdentite.champ.value
       }, 'PATCH');
       await recharger();
       await window.rafraichirHistorique();
