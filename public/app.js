@@ -430,6 +430,29 @@ function selecteurCouleur(initiale) {
   return { zone, valeur: () => choisie };
 }
 
+// Un champ du cadre "intention d'implémentation + identité" (Je vais... /
+// Moment-lieu / pour devenir...) : une textarea, avec un label optionnel
+// au-dessus (le champ moment/lieu n'en a pas). Réutilisé par le formulaire
+// de création ET celui d'édition.
+function creerChampIntention(labelTexte, placeholder, valeurInitiale = '') {
+  const conteneur = document.createElement('div');
+  conteneur.className = 'champ-intention';
+
+  if (labelTexte) {
+    const label = document.createElement('div');
+    label.className = 'champ-intention-label';
+    label.textContent = labelTexte;
+    conteneur.appendChild(label);
+  }
+
+  const champ = document.createElement('textarea');
+  champ.placeholder = placeholder;
+  champ.value = valeurInitiale;
+  conteneur.appendChild(champ);
+
+  return { conteneur, champ };
+}
+
 function formulaireHabitude(card, playerId, declencheur) {
   if (card.querySelector('.formulaire')) return;
   declencheur.classList.add('cache');
@@ -455,8 +478,9 @@ function formulaireHabitude(card, playerId, declencheur) {
     objectif.classList.toggle('cache', type.value !== 'weekly');
   });
 
-  const note = document.createElement('input');
-  note.placeholder = 'Note — à quoi t\'engages-tu ? (optionnel)';
+  const intentionNote = creerChampIntention('Je vais...', 'méditer 10 minutes chaque matin');
+  const intentionMomentLieu = creerChampIntention(null, 'Moment / lieu (optionnel)');
+  const intentionIdentite = creerChampIntention('pour devenir...', 'type de personne que je veux devenir (optionnel)');
 
   const couleur = selecteurCouleur();
 
@@ -473,7 +497,11 @@ function formulaireHabitude(card, playerId, declencheur) {
   annuler.addEventListener('click', () => { form.remove(); declencheur.classList.remove('cache'); });
   boutons.append(valider, annuler);
 
-  form.append(nom, type, objectif, note, couleur.zone, boutons);
+  form.append(
+    nom, type, objectif,
+    intentionNote.conteneur, intentionMomentLieu.conteneur, intentionIdentite.conteneur,
+    couleur.zone, boutons
+  );
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -483,7 +511,9 @@ function formulaireHabitude(card, playerId, declencheur) {
         type: type.value,
         couleur: couleur.valeur(),
         objectif: Number(objectif.value),
-        note: note.value
+        note: intentionNote.champ.value,
+        moment_lieu: intentionMomentLieu.champ.value,
+        identite: intentionIdentite.champ.value
       });
       await recharger();
     } catch (err) {

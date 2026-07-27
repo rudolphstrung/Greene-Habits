@@ -341,7 +341,7 @@ main {
   border: 1px solid var(--bord);
   border-radius: 12px;
 }
-.formulaire input, .formulaire select {
+.formulaire input, .formulaire select, .formulaire textarea {
   padding: 8px 10px;
   background: var(--card);
   border: 1px solid var(--bord);
@@ -349,6 +349,16 @@ main {
   color: var(--texte);
   font: inherit;
   font-size: 13px;
+}
+.formulaire textarea {
+  min-height: 44px;
+  resize: vertical;
+}
+.champ-intention { display: grid; gap: 4px; }
+.champ-intention-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--doux);
 }
 .formulaire-boutons { display: flex; gap: 8px; }
 
