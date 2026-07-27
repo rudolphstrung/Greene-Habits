@@ -430,6 +430,15 @@ function selecteurCouleur(initiale) {
   return { zone, valeur: () => choisie };
 }
 
+// Libellés et placeholders des 3 champs "intention d'implémentation +
+// identité", partagés entre le formulaire de création et celui d'édition —
+// un seul endroit à modifier si le texte évolue.
+const CHAMPS_INTENTION = {
+  note: { label: 'Je vais...', placeholder: 'méditer 10 minutes chaque matin' },
+  momentLieu: { label: null, placeholder: 'Moment / lieu (optionnel)' },
+  identite: { label: 'pour devenir...', placeholder: 'type de personne que je veux devenir (optionnel)' }
+};
+
 // Un champ du cadre "intention d'implémentation + identité" (Je vais... /
 // Moment-lieu / pour devenir...) : une textarea, avec un label optionnel
 // au-dessus (le champ moment/lieu n'en a pas). Réutilisé par le formulaire
@@ -448,6 +457,7 @@ function creerChampIntention(labelTexte, placeholder, valeurInitiale = '') {
   const champ = document.createElement('textarea');
   champ.placeholder = placeholder;
   champ.value = valeurInitiale;
+  champ.setAttribute('aria-label', labelTexte || placeholder);
   conteneur.appendChild(champ);
 
   return { conteneur, champ };
@@ -478,9 +488,9 @@ function formulaireHabitude(card, playerId, declencheur) {
     objectif.classList.toggle('cache', type.value !== 'weekly');
   });
 
-  const intentionNote = creerChampIntention('Je vais...', 'méditer 10 minutes chaque matin');
-  const intentionMomentLieu = creerChampIntention(null, 'Moment / lieu (optionnel)');
-  const intentionIdentite = creerChampIntention('pour devenir...', 'type de personne que je veux devenir (optionnel)');
+  const intentionNote = creerChampIntention(CHAMPS_INTENTION.note.label, CHAMPS_INTENTION.note.placeholder);
+  const intentionMomentLieu = creerChampIntention(CHAMPS_INTENTION.momentLieu.label, CHAMPS_INTENTION.momentLieu.placeholder);
+  const intentionIdentite = creerChampIntention(CHAMPS_INTENTION.identite.label, CHAMPS_INTENTION.identite.placeholder);
 
   const couleur = selecteurCouleur();
 
@@ -605,8 +615,13 @@ function bloqueStat(valeur, label) {
 // Bloc "Je vais... / Moment-lieu / pour devenir..." affiché sous le titre
 // dans le popup historique — null si les 3 champs sont vides (rien à montrer).
 function creerBlocIntention(donnees) {
+  // Le préfixe "Je vais..." ne s'applique que si l'habitude a été créée ou
+  // éditée sous le nouveau cadre (moment_lieu ou identite renseigné) : une
+  // note d'avant cette fonctionnalité n'est pas forcément phrasée comme une
+  // intention et s'afficherait sinon de façon incohérente.
+  const cadreIntention = Boolean(donnees.moment_lieu || donnees.identite);
   const lignes = [];
-  if (donnees.note) lignes.push(`Je vais... ${donnees.note}`);
+  if (donnees.note) lignes.push(cadreIntention ? `Je vais... ${donnees.note}` : donnees.note);
   if (donnees.moment_lieu) lignes.push(`Moment/lieu : ${donnees.moment_lieu}`);
   if (donnees.identite) lignes.push(`pour devenir... ${donnees.identite}`);
   if (lignes.length === 0) return null;
@@ -736,9 +751,9 @@ function formulaireEdition(donnees) {
   objectif.value = donnees.objectif;
   if (donnees.type !== 'weekly') objectif.classList.add('cache');
 
-  const intentionNote = creerChampIntention('Je vais...', 'méditer 10 minutes chaque matin', donnees.note || '');
-  const intentionMomentLieu = creerChampIntention(null, 'Moment / lieu (optionnel)', donnees.moment_lieu || '');
-  const intentionIdentite = creerChampIntention('pour devenir...', 'type de personne que je veux devenir (optionnel)', donnees.identite || '');
+  const intentionNote = creerChampIntention(CHAMPS_INTENTION.note.label, CHAMPS_INTENTION.note.placeholder, donnees.note || '');
+  const intentionMomentLieu = creerChampIntention(CHAMPS_INTENTION.momentLieu.label, CHAMPS_INTENTION.momentLieu.placeholder, donnees.moment_lieu || '');
+  const intentionIdentite = creerChampIntention(CHAMPS_INTENTION.identite.label, CHAMPS_INTENTION.identite.placeholder, donnees.identite || '');
 
   const boutons = document.createElement('div');
   boutons.className = 'formulaire-boutons';
