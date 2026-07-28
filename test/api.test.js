@@ -373,6 +373,59 @@ test('POST /api/toggle sur une date antérieure à la création rend toujours 40
   await s.fermer();
 });
 
+test('POST /api/gels pose un gel sur un jour raté', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -5));
+    const hier = addDays(todayISO(), -1);
+    const { statut, corps } = await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: hier }));
+    assert.equal(statut, 201);
+    assert.equal(corps.ref, hier);
+    assert.equal(corps.gels_restants, 1);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('POST /api/gels refuse au-delà du quota avec un 400', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -14));
+    // Tous les 3 gels dans la semaine passée pour assurer qu'ils sont dans la même semaine ISO
+    const semainePassee = addDays(mondayOf(todayISO()), -7);
+    const j1 = semainePassee;
+    const j2 = addDays(semainePassee, 1);
+    const j3 = addDays(semainePassee, 2);
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: j1 }));
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: j2 }));
+    const { statut, corps } = await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: j3 }));
+    assert.equal(statut, 400);
+    assert.ok(corps.erreur);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('POST /api/gels refuse une habitude weekly avec un 400', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+    }));
+    const semainePassee = addDays(mondayOf(todayISO()), -7);
+    const { statut } = await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: semainePassee }));
+    assert.equal(statut, 400);
+  } finally {
+    await s.fermer();
+  }
+});
+
 // --- Tâche 2 : leaderboard mensuel des trahisons + profil joueur ----------
 
 test('le leaderboard classe le moins trahi en premier', async () => {

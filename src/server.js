@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   openDb, getPlayers, getHabits, getAllHabits, getHabit, getEntries, COULEURS,
-  createPlayer, createHabit, updateHabit, archiveHabit, deleteHabit, toggle, refFor, slugifier
+  createPlayer, createHabit, updateHabit, archiveHabit, deleteHabit, toggle, createGel,
+  getGels, countGelsSemaine, refFor, slugifier
 } from './db.js';
 import {
   todayISO, currentWeekDays, lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
@@ -341,6 +342,11 @@ export function createServer(db) {
       if (req.method === 'POST' && chemin === '/api/toggle') {
         const { habit_id, date_ref } = await lireCorps(req);
         return envoyerJson(res, 200, { count: toggle(db, Number(habit_id), date_ref) });
+      }
+
+      if (req.method === 'POST' && chemin === '/api/gels') {
+        const { habit_id, date_ref } = await lireCorps(req);
+        return envoyerJson(res, 201, createGel(db, Number(habit_id), date_ref));
       }
 
       return envoyerJson(res, 404, { erreur: 'Route inconnue' });
