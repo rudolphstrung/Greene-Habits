@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { todayISO, mondayOf, addDays } from '../src/dates.js';
+import { todayISO, mondayOf, addDays, firstOfMonth } from '../src/dates.js';
 
 async function demarrer() {
   const db = openDb(':memory:');
@@ -456,12 +456,26 @@ test('un jour gelé ne compte pas comme trahison', async () => {
     await s.json('/api/habits', s.post('/api/habits', {
       player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
     }));
-    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -2));
-    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: addDays(todayISO(), -1) }));
+    const creation = addDays(todayISO(), -2);
+    const gele = addDays(todayISO(), -1);
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(creation);
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: gele }));
 
     const { corps } = await s.json('/api/state');
     // J-2 (création, non cochée) = 1 trahison ; J-1 (gelé) = 0 ; J0 (en cours) = 0.
-    assert.equal(corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons, 1);
+    // trahisonsDeLHabitude exclut tout ref < firstOfMonth(aujourd'hui) : reculer
+    // de 2 jours peut donc traverser un début de mois (exécution le 1er ou le
+    // 2 du mois), auquel cas J-2 (et parfois J-1) tombent hors du mois en cours
+    // et ne comptent plus du tout, gel ou pas. On calcule l'attendu dynamiquement
+    // à partir de firstOfMonth(todayISO()) plutôt que de coder en dur 1 : le
+    // test reste vrai quel que soit le jour d'exécution, tout en vérifiant
+    // toujours qu'un jour gelé n'ajoute jamais de trahison (cf. raisonnement :
+    // si J-2 est dans le mois en cours, J-1 l'est nécessairement aussi, donc le
+    // seul cas où gel est structurellement dans le mois sans que la création le
+    // soit, la protection par gel est bien exercée et rend quand même le total
+    // à 0, identique à l'exclusion mensuelle).
+    const attendu = creation >= firstOfMonth(todayISO()) ? 1 : 0;
+    assert.equal(corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons, attendu);
   } finally {
     await s.fermer();
   }
