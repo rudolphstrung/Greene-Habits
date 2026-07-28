@@ -83,6 +83,17 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_entries_habit ON entries (habit_id, date_ref);
+
+  CREATE TABLE IF NOT EXISTS gels (
+    id         INTEGER PRIMARY KEY,
+    habit_id   INTEGER NOT NULL REFERENCES habits(id),
+    ref        TEXT NOT NULL,
+    semaine    TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (habit_id, ref)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_gels_semaine ON gels (semaine);
 `;
 
 // Migration pour les bases créées avant l'ajout de la colonne `objectif` sur
@@ -291,6 +302,7 @@ export function archiveHabit(db, id) {
 export function deleteHabit(db, id) {
   const suppr = db.transaction((habitId) => {
     db.prepare('DELETE FROM entries WHERE habit_id = ?').run(habitId);
+    db.prepare('DELETE FROM gels WHERE habit_id = ?').run(habitId);
     return db.prepare('DELETE FROM habits WHERE id = ?').run(habitId);
   });
   const info = suppr(id);
@@ -306,6 +318,24 @@ export function getEntries(db, habitId) {
   return Object.fromEntries(
     lignes.map((l) => [l.date_ref, { count: l.count, objectif: l.objectif }])
   );
+}
+
+// Toutes les refs gelées d'une habitude — même rôle que getEntries pour les
+// compteurs, consommé par pointsDe/reussitesPourStats/trahisonsDeLHabitude
+// (src/server.js) pour neutraliser un jour gelé partout.
+export function getGels(db, habitId) {
+  const lignes = db.prepare('SELECT ref FROM gels WHERE habit_id = ?').all(habitId);
+  return new Set(lignes.map((l) => l.ref));
+}
+
+// Nombre de gels déjà posés par un joueur (toutes habitudes confondues) pour
+// une semaine donnée (lundi de la semaine, cf. mondayOf). Calculé à la volée,
+// jamais stocké — comme le streak.
+export function countGelsSemaine(db, playerId, semaine) {
+  return db.prepare(
+    `SELECT COUNT(*) AS n FROM gels g JOIN habits h ON h.id = g.habit_id
+     WHERE h.player_id = ? AND g.semaine = ?`
+  ).get(playerId, semaine).n;
 }
 
 export function refFor(habit, dateISO) {

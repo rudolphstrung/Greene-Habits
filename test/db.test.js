@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import {
   openDb, getPlayers, getHabits, getAllHabits, getHabit, COULEURS, COULEURS_JOUEURS,
   slugifier, createPlayer, createHabit, updateHabit,
-  archiveHabit, getEntries, toggle, refFor
+  archiveHabit, deleteHabit, getEntries, toggle, refFor, getGels, countGelsSemaine
 } from '../src/db.js';
 import { todayISO, mondayOf, addDays } from '../src/dates.js';
 
@@ -370,4 +370,58 @@ test('la migration objectif backfille les entries existantes et reste idempotent
     fs.rmSync(`${fichier}-shm`, { force: true });
     fs.rmSync(`${fichier}-wal`, { force: true });
   }
+});
+
+test('getGels rend un Set vide pour une habitude sans gel', () => {
+  const { db, habit } = baseAvecHabitude();
+  assert.deepEqual(getGels(db, habit.id), new Set());
+});
+
+test('getGels rend les refs gelées d\'une habitude', () => {
+  const { db, habit } = baseAvecHabitude();
+  const jour = addDays(todayISO(), -1);
+  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(habit.id, jour, mondayOf(jour), todayISO());
+  assert.deepEqual(getGels(db, habit.id), new Set([jour]));
+});
+
+test('countGelsSemaine compte les gels de toutes les habitudes du même joueur', () => {
+  const db = openDb(':memory:');
+  const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const h2 = createHabit(db, { player_id: 1, nom: 'Sport', type: 'daily', couleur: '#22C55E', objectif: 1 });
+  const semaine = mondayOf(todayISO());
+  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(h1.id, addDays(todayISO(), -1), semaine, todayISO());
+  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(h2.id, addDays(todayISO(), -2), semaine, todayISO());
+  assert.equal(countGelsSemaine(db, 1, semaine), 2);
+});
+
+test('countGelsSemaine ignore les gels d\'un autre joueur', () => {
+  const db = openDb(':memory:');
+  const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const semaine = mondayOf(todayISO());
+  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(h1.id, addDays(todayISO(), -1), semaine, todayISO());
+  assert.equal(countGelsSemaine(db, 2, semaine), 0);
+});
+
+test('le schéma refuse deux gels sur la même habitude et le même jour', () => {
+  const { db, habit } = baseAvecHabitude();
+  const jour = todayISO();
+  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(habit.id, jour, mondayOf(jour), jour);
+  assert.throws(() => {
+    db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+      .run(habit.id, jour, mondayOf(jour), jour);
+  });
+});
+
+test('deleteHabit supprime aussi les gels sans lever d\'erreur de contrainte', () => {
+  const { db, habit } = baseAvecHabitude();
+  const jour = todayISO();
+  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(habit.id, jour, mondayOf(jour), jour);
+  deleteHabit(db, habit.id);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM gels').get().n, 0);
 });
