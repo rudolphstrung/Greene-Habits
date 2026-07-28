@@ -380,7 +380,10 @@ export function toggle(db, habitId, dateRef) {
 // Une habitude ne peut être gelée qu'un jour PASSÉ et non réussi, dans la
 // même fenêtre que toggle() (depuis la création jusqu'à hier inclus — jamais
 // le jour en cours). Le quota (2 gels/semaine par joueur, toutes habitudes
-// confondues) est vérifié juste avant l'insertion.
+// confondues) est vérifié juste avant l'insertion, sur la semaine où le gel
+// est posé (aujourd'hui) — jamais sur la semaine du jour protégé.
+export const MAX_GELS_SEMAINE = 2;
+
 export function createGel(db, habitId, dateRef) {
   const habit = getHabit(db, habitId);
   if (!habit) throw new Error('Habitude introuvable');
@@ -402,13 +405,13 @@ export function createGel(db, habitId, dateRef) {
   const dejaGele = db.prepare('SELECT 1 FROM gels WHERE habit_id = ? AND ref = ?').get(habitId, ref);
   if (dejaGele) throw new Error('Ce jour est déjà protégé par un gel');
 
-  const semaine = mondayOf(ref);
+  const semaine = mondayOf(todayISO());
   const utilises = countGelsSemaine(db, habit.player_id, semaine);
-  if (utilises >= 2) throw new Error('Plus de gel disponible cette semaine');
+  if (utilises >= MAX_GELS_SEMAINE) throw new Error('Plus de gel disponible cette semaine');
 
   const { lastInsertRowid } = db.prepare(
     'INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)'
   ).run(habitId, ref, semaine, todayISO());
 
-  return { id: lastInsertRowid, habit_id: habitId, ref, gels_restants: 2 - (utilises + 1) };
+  return { id: lastInsertRowid, habit_id: habitId, ref, gels_restants: MAX_GELS_SEMAINE - (utilises + 1) };
 }

@@ -527,25 +527,16 @@ test('/api/state expose gels_restants par joueur, décrémenté après usage', a
     await s.json('/api/habits', s.post('/api/habits', {
       player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
     }));
-    // gels_restants est calculé par /api/state pour LA SEMAINE COURANTE
-    // (mondayOf(aujourd'hui)) : le jour gelé doit donc tomber dans cette même
-    // semaine ISO pour que le test soit déterministe. Le lundi de la semaine
-    // en cours convient toujours... sauf si le test tourne un lundi lui-même,
-    // auquel cas ce lundi EST aujourd'hui (aucun jour passé de la semaine en
-    // cours n'existe alors). Dans ce seul cas rarissime on retombe sur hier
-    // (semaine ISO précédente) et l'assertion s'adapte à la semaine réellement
-    // gelée — jamais de faux échec, quel que soit le jour d'exécution.
-    const semaineCourante = mondayOf(todayISO());
-    const jourAGeler = semaineCourante < todayISO() ? semaineCourante : addDays(todayISO(), -1);
-    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(jourAGeler, -5));
+    // Le quota est désormais indexé sur la semaine où le gel est POSÉ
+    // (aujourd'hui), jamais sur la semaine du jour protégé : peu importe quel
+    // jour passé on gèle, le compteur affiché baisse toujours de la même
+    // façon. Pas besoin de distinguo selon le jour d'exécution du test.
+    const jourAGeler = addDays(todayISO(), -1);
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -5));
     await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: jourAGeler }));
 
     const apres = (await s.json('/api/state')).corps;
-    const geleDansSemaineCourante = mondayOf(jourAGeler) === semaineCourante;
-    assert.equal(
-      apres.players.find((p) => p.nom === 'Nicolas').gels_restants,
-      geleDansSemaineCourante ? 1 : 2
-    );
+    assert.equal(apres.players.find((p) => p.nom === 'Nicolas').gels_restants, 1);
     // Les autres joueurs gardent leurs 2 gels intacts (quota indépendant).
     assert.equal(apres.players.find((p) => p.nom === 'Axel').gels_restants, 2);
   } finally {

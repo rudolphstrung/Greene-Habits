@@ -164,6 +164,7 @@ function creerPoint(habit, point) {
   bouton.className = 'point';
   bouton.dataset.habit = habit.id;
   bouton.dataset.ref = point.ref;
+  bouton.dataset.type = habit.type;
   bouton.title = point.ref;
 
   if (point.etat === 'reussi') bouton.style.background = habit.couleur;
@@ -569,7 +570,7 @@ document.addEventListener('click', async (e) => {
   // Jour raté ou déjà gelé : ouvre un choix (marquer fait / utiliser un gel)
   // plutôt qu'une bascule directe. Un jour déjà réussi reste une simple
   // correction en un clic (comportement inchangé, juste en dessous).
-  if (point.classList.contains('rate') || point.classList.contains('gele')) {
+  if ((point.classList.contains('rate') || point.classList.contains('gele')) && point.dataset.type === 'daily') {
     menuJourRate(habitId, ref, point.classList.contains('gele'));
     return;
   }
