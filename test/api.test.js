@@ -426,6 +426,140 @@ test('POST /api/gels refuse une habitude weekly avec un 400', async () => {
   }
 });
 
+// --- Tâche 4 : neutralise streak/record/taux/trahisons via gels + gels_restants ---
+
+test('un jour gelé protège le streak sans le faire redescendre à 0', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -3));
+    // J-3, J-2 réussis, J-1 raté (protégé par un gel), J0 (aujourd'hui) réussi.
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: addDays(todayISO(), -3) }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: addDays(todayISO(), -2) }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: todayISO() }));
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: addDays(todayISO(), -1) }));
+
+    const { corps } = await s.json('/api/state');
+    const habit = corps.players[0].habits[0];
+    // Le jour gelé est invisible du calcul : J-3, J-2 (gelé sauté), J0 → streak 3.
+    assert.equal(habit.streak, 3);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('un jour gelé ne compte pas comme trahison', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -2));
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: addDays(todayISO(), -1) }));
+
+    const { corps } = await s.json('/api/state');
+    // J-2 (création, non cochée) = 1 trahison ; J-1 (gelé) = 0 ; J0 (en cours) = 0.
+    assert.equal(corps.leaderboard.find((l) => l.nom === 'Nicolas').trahisons, 1);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('le point d\'un jour gelé porte l\'état gele', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -2));
+    const hier = addDays(todayISO(), -1);
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: hier }));
+
+    const { corps } = await s.json('/api/state');
+    const point = corps.players[0].habits[0].points.find((p) => p.ref === hier);
+    assert.equal(point.etat, 'gele');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('marquer fait après coup un jour gelé le rend réussi : le gel devient sans effet', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -2));
+    const hier = addDays(todayISO(), -1);
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: hier }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: hier }));
+
+    const { corps } = await s.json('/api/state');
+    const point = corps.players[0].habits[0].points.find((p) => p.ref === hier);
+    assert.equal(point.etat, 'reussi');
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('/api/state expose gels_restants par joueur, décrémenté après usage', async () => {
+  const s = await demarrer();
+  try {
+    const avant = (await s.json('/api/state')).corps;
+    assert.equal(avant.players.find((p) => p.nom === 'Nicolas').gels_restants, 2);
+
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    // gels_restants est calculé par /api/state pour LA SEMAINE COURANTE
+    // (mondayOf(aujourd'hui)) : le jour gelé doit donc tomber dans cette même
+    // semaine ISO pour que le test soit déterministe. Le lundi de la semaine
+    // en cours convient toujours... sauf si le test tourne un lundi lui-même,
+    // auquel cas ce lundi EST aujourd'hui (aucun jour passé de la semaine en
+    // cours n'existe alors). Dans ce seul cas rarissime on retombe sur hier
+    // (semaine ISO précédente) et l'assertion s'adapte à la semaine réellement
+    // gelée — jamais de faux échec, quel que soit le jour d'exécution.
+    const semaineCourante = mondayOf(todayISO());
+    const jourAGeler = semaineCourante < todayISO() ? semaineCourante : addDays(todayISO(), -1);
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(jourAGeler, -5));
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: jourAGeler }));
+
+    const apres = (await s.json('/api/state')).corps;
+    const geleDansSemaineCourante = mondayOf(jourAGeler) === semaineCourante;
+    assert.equal(
+      apres.players.find((p) => p.nom === 'Nicolas').gels_restants,
+      geleDansSemaineCourante ? 1 : 2
+    );
+    // Les autres joueurs gardent leurs 2 gels intacts (quota indépendant).
+    assert.equal(apres.players.find((p) => p.nom === 'Axel').gels_restants, 2);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('GET /api/history reflète l\'état gele et neutralise le taux de réussite', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -3));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: addDays(todayISO(), -3) }));
+    await s.json('/api/toggle', s.post('/api/toggle', { habit_id: 1, date_ref: addDays(todayISO(), -2) }));
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: addDays(todayISO(), -1) }));
+
+    const { corps } = await s.json('/api/history?habit_id=1');
+    const pointGele = corps.points.find((p) => p.ref === addDays(todayISO(), -1));
+    assert.equal(pointGele.etat, 'gele');
+    // Sur les 2 seuls jours écoulés jugés (J-3, J-2, le gelé exclu) : 100%.
+    assert.equal(corps.taux, 100);
+  } finally {
+    await s.fermer();
+  }
+});
+
 // --- Tâche 2 : leaderboard mensuel des trahisons + profil joueur ----------
 
 test('le leaderboard classe le moins trahi en premier', async () => {

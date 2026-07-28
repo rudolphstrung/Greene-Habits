@@ -8,7 +8,7 @@ import {
   getGels, countGelsSemaine, refFor, slugifier
 } from './db.js';
 import {
-  todayISO, currentWeekDays, lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
+  todayISO, mondayOf, currentWeekDays, lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
 } from './dates.js';
 import { dotState, computeStreak, successRate, bestStreak } from './state.js';
 
@@ -54,7 +54,7 @@ function estReussi(habit, entries, ref, refCourante) {
   return count >= cibleDe(habit, entries, ref, refCourante);
 }
 
-function pointsDe(habit, entries, refs, refCourante) {
+function pointsDe(habit, entries, refs, refCourante, gels) {
   const refCreation = refFor(habit, habit.created_at);
   return refs.map((ref) => {
     const count = entries[ref]?.count || 0;
@@ -74,6 +74,12 @@ function pointsDe(habit, entries, refs, refCourante) {
     if (habit.type === 'weekly' && ref === refCreation) {
       return { ref, count, etat: reussi ? 'reussi' : 'attente', cliquable, actuel };
     }
+    // Un jour gelé et non réussi prend le pas sur dotState : glaçon plutôt que
+    // rouge. Si le jour est marqué fait après coup malgré un gel existant, la
+    // réussite réelle gagne toujours — le gel devient simplement sans effet.
+    if (!reussi && gels.has(ref)) {
+      return { ref, count, etat: 'gele', cliquable, actuel };
+    }
     return { ref, count, etat: dotState(reussi, ref < refCourante), cliquable, actuel };
   });
 }
@@ -81,14 +87,18 @@ function pointsDe(habit, entries, refs, refCourante) {
 // La période de création est partielle : si elle n'a pas été atteinte, elle
 // ne compte ni comme réussite ni comme échec dans les statistiques. Renvoie
 // directement la séquence de booléens attendue par computeStreak/bestStreak/successRate.
-function reussitesPourStats(habit, entries, refs, refCourante) {
+function reussitesPourStats(habit, entries, refs, refCourante, gels) {
   const refCreation = refFor(habit, habit.created_at);
   // Grâce sur la semaine de création (hebdo seulement) si elle n'a pas été
   // atteinte : elle ne compte ni comme réussite ni comme échec. Pour une
   // quotidienne, le jour de création compte normalement.
   const graceCreation = habit.type === 'weekly'
     && !estReussi(habit, entries, refCreation, refCourante);
-  const utiles = graceCreation ? refs.filter((r) => r !== refCreation) : refs;
+  // Un jour gelé et non réussi est neutralisé au même titre que la grâce de
+  // création : invisible pour computeStreak/bestStreak/successRate. S'il est
+  // ensuite marqué fait, estReussi devient vrai et il n'est plus filtré.
+  const geleNonReussi = (ref) => gels.has(ref) && !estReussi(habit, entries, ref, refCourante);
+  const utiles = refs.filter((r) => !(graceCreation && r === refCreation) && !geleNonReussi(r));
   return utiles.map((ref) => estReussi(habit, entries, ref, refCourante));
 }
 
@@ -98,7 +108,7 @@ function reussitesPourStats(habit, entries, refs, refCourante) {
 // fraction de la période) : ni l'une ni l'autre ne compte, tout comme la
 // période en cours. Une habitude archivée cesse d'accumuler des trahisons
 // dès sa période d'archivage, mais garde celles d'avant.
-function trahisonsDeLHabitude(habit, entries, aujourdhui) {
+function trahisonsDeLHabitude(habit, entries, aujourdhui, gels) {
   const debutMois = firstOfMonth(aujourdhui);
   const refCourante = refFor(habit, aujourdhui);
   const refCreation = refFor(habit, habit.created_at);
@@ -113,6 +123,8 @@ function trahisonsDeLHabitude(habit, entries, aujourdhui) {
     // Grâce sur la semaine de création (hebdo seulement) : partielle. Pour une
     // quotidienne, le jour de création compte comme n'importe quel jour.
     if (habit.type === 'weekly' && ref === refCreation) return false;
+    // Un jour gelé et non réussi ne compte jamais comme trahison.
+    if (gels.has(ref) && !estReussi(habit, entries, ref, refCourante)) return false;
     return !estReussi(habit, entries, ref, refCourante);
   }).length;
 }
@@ -128,7 +140,7 @@ function construireLeaderboard(db, aujourdhui) {
       trahisons: habits
         .filter((h) => h.player_id === joueur.id)
         .reduce((total, h) =>
-          total + trahisonsDeLHabitude(h, getEntries(db, h.id), aujourdhui), 0)
+          total + trahisonsDeLHabitude(h, getEntries(db, h.id), aujourdhui, getGels(db, h.id)), 0)
     }))
     .sort((a, b) => a.trahisons - b.trahisons || a.nom.localeCompare(b.nom, 'fr'));
 }
@@ -136,19 +148,22 @@ function construireLeaderboard(db, aujourdhui) {
 function construireEtat(db) {
   const aujourdhui = todayISO();
   const habits = getHabits(db);
+  const semaineCourante = mondayOf(aujourdhui);
 
   const joueurs = getPlayers(db).map((joueur) => ({
     id: joueur.id,
     nom: joueur.nom,
     couleur: joueur.couleur,
     slug: slugifier(joueur.nom),
+    gels_restants: Math.max(0, 2 - countGelsSemaine(db, joueur.id, semaineCourante)),
     habits: habits
       .filter((h) => h.player_id === joueur.id)
       .map((h) => {
         const entries = getEntries(db, h.id);
+        const gels = getGels(db, h.id);
         const refCourante = refFor(h, aujourdhui);
         const refs = fenetre(h, aujourdhui);
-        const reussites = reussitesPourStats(h, entries, toutesLesRefs(h, aujourdhui), refCourante);
+        const reussites = reussitesPourStats(h, entries, toutesLesRefs(h, aujourdhui), refCourante, gels);
         return {
           id: h.id,
           nom: h.nom,
@@ -157,7 +172,7 @@ function construireEtat(db) {
           objectif: h.objectif,
           courant: entries[refCourante]?.count || 0,
           streak: computeStreak(reussites),
-          points: pointsDe(h, entries, refs, refCourante)
+          points: pointsDe(h, entries, refs, refCourante, gels)
         };
       })
   }));
@@ -173,10 +188,10 @@ function construireEtat(db) {
 
 // Statistiques d'une habitude, réutilisées à la fois par l'historique détaillé
 // (avec les points) et par le profil joueur (sans les points).
-function statsHabit(habit, entries, aujourdhui) {
+function statsHabit(habit, entries, aujourdhui, gels) {
   const refs = toutesLesRefs(habit, aujourdhui);
   const refCourante = refFor(habit, aujourdhui);
-  const reussites = reussitesPourStats(habit, entries, refs, refCourante);
+  const reussites = reussitesPourStats(habit, entries, refs, refCourante, gels);
 
   return {
     id: habit.id,
@@ -191,7 +206,7 @@ function statsHabit(habit, entries, aujourdhui) {
     streak: computeStreak(reussites),
     record: bestStreak(reussites),
     taux: successRate(reussites),
-    trahisonsMois: trahisonsDeLHabitude(habit, entries, aujourdhui)
+    trahisonsMois: trahisonsDeLHabitude(habit, entries, aujourdhui, gels)
   };
 }
 
@@ -200,12 +215,13 @@ function construireHistorique(db, habitId) {
   if (!habit) return null;
   const aujourdhui = todayISO();
   const entries = getEntries(db, habit.id);
+  const gels = getGels(db, habit.id);
   const refs = toutesLesRefs(habit, aujourdhui);
   const refCourante = refFor(habit, aujourdhui);
 
   return {
-    ...statsHabit(habit, entries, aujourdhui),
-    points: pointsDe(habit, entries, refs, refCourante)
+    ...statsHabit(habit, entries, aujourdhui, gels),
+    points: pointsDe(habit, entries, refs, refCourante, gels)
   };
 }
 
@@ -219,10 +235,10 @@ function construireProfil(db, playerId) {
   const habits = getAllHabits(db).filter((h) => h.player_id === playerId);
   const actives = habits
     .filter((h) => !h.archived)
-    .map((h) => statsHabit(h, getEntries(db, h.id), aujourdhui));
+    .map((h) => statsHabit(h, getEntries(db, h.id), aujourdhui, getGels(db, h.id)));
   const archivees = habits
     .filter((h) => h.archived)
-    .map((h) => statsHabit(h, getEntries(db, h.id), aujourdhui));
+    .map((h) => statsHabit(h, getEntries(db, h.id), aujourdhui, getGels(db, h.id)));
 
   return {
     id: joueur.id,
