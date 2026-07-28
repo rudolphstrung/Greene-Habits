@@ -168,6 +168,10 @@ function creerPoint(habit, point) {
 
   if (point.etat === 'reussi') bouton.style.background = habit.couleur;
   else if (point.etat === 'rate') bouton.classList.add('rate');
+  else if (point.etat === 'gele') {
+    bouton.classList.add('gele');
+    bouton.textContent = '🧊';
+  }
 
   // Le serveur seul sait ce qui est cliquable (fenêtre créée→courante) :
   // futur ET périodes antérieures à la création de l'habitude.
@@ -284,12 +288,22 @@ function creerCard(joueur, misEnAvant = false) {
   card.dataset.joueur = joueur.id;
   if (misEnAvant) card.classList.add('card-mise-en-avant');
 
+  const entete = document.createElement('div');
+  entete.className = 'card-entete';
+
   const titre = document.createElement('button');
   titre.type = 'button';
   titre.className = 'card-titre';
   titre.textContent = joueur.nom;
   titre.addEventListener('click', () => window.ouvrirProfil(joueur.id));
-  card.appendChild(titre);
+
+  const gels = document.createElement('span');
+  gels.className = 'card-gels';
+  gels.textContent = `🧊 ${joueur.gels_restants}/2`;
+  gels.title = 'Gels de streak disponibles cette semaine';
+
+  entete.append(titre, gels);
+  card.appendChild(entete);
 
   const daily = creerBloc('DAILY', joueur.habits.filter((h) => h.type === 'daily'), true);
   const weekly = creerBloc('WEEKLY', joueur.habits.filter((h) => h.type === 'weekly'), false);
@@ -552,7 +566,15 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // Cases passées : simple correction (bascule + rechargement).
+  // Jour raté ou déjà gelé : ouvre un choix (marquer fait / utiliser un gel)
+  // plutôt qu'une bascule directe. Un jour déjà réussi reste une simple
+  // correction en un clic (comportement inchangé, juste en dessous).
+  if (point.classList.contains('rate') || point.classList.contains('gele')) {
+    menuJourRate(habitId, ref, point.classList.contains('gele'));
+    return;
+  }
+
+  // Cases passées réussies : simple correction (bascule + rechargement).
   try {
     await envoyer('/api/toggle', { habit_id: habitId, date_ref: ref });
     await recharger();
@@ -852,6 +874,75 @@ function menuSuppression(habit) {
   annuler.addEventListener('click', fermerPopup);
 
   actions.append(archiver, supprimer, annuler);
+  popupContenu.append(titre, question, actions);
+}
+
+// Menu au clic sur un point raté ou déjà gelé : proposer de corriger (marquer
+// fait) ou d'utiliser un gel pour protéger le streak sans compter le jour
+// comme réussi. Même mécanique que menuSuppression (popup réutilisé).
+// Si un historique était déjà ouvert (clic depuis le calendrier détaillé), on
+// y revient après l'action au lieu de fermer le popup — cohérent avec
+// rafraichirHistorique() qui existe précisément pour ce cas.
+function menuJourRate(habitId, ref, dejaGele) {
+  const historiqueEnCours = habitOuverte;
+  const origineEnCours = origineHistorique;
+
+  const retourOuFermer = async () => {
+    if (historiqueEnCours !== null) {
+      await window.ouvrirHistorique(historiqueEnCours, origineEnCours);
+    } else {
+      fermerPopup();
+    }
+  };
+
+  popupContenu.textContent = '';
+  popup.classList.remove('cache');
+
+  const titre = document.createElement('h2');
+  titre.textContent = ref;
+  titre.style.margin = '0';
+
+  const question = document.createElement('div');
+  question.className = 'note';
+  question.textContent = dejaGele
+    ? 'Ce jour est déjà protégé par un gel.'
+    : 'Ce jour est raté — que faire ?';
+
+  const actions = document.createElement('div');
+  actions.className = 'menu-suppression';
+
+  const marquerFait = document.createElement('button');
+  marquerFait.className = 'btn-principal';
+  marquerFait.textContent = 'Marquer fait';
+  marquerFait.addEventListener('click', async () => {
+    try {
+      await envoyer('/api/toggle', { habit_id: habitId, date_ref: ref });
+      await recharger();
+      await retourOuFermer();
+    } catch (err) { signaler(err.message); }
+  });
+  actions.appendChild(marquerFait);
+
+  if (!dejaGele) {
+    const utiliserGel = document.createElement('button');
+    utiliserGel.className = 'btn-discret';
+    utiliserGel.textContent = 'Utiliser un gel 🧊';
+    utiliserGel.addEventListener('click', async () => {
+      try {
+        await envoyer('/api/gels', { habit_id: habitId, date_ref: ref });
+        await recharger();
+        await retourOuFermer();
+      } catch (err) { signaler(err.message); }
+    });
+    actions.appendChild(utiliserGel);
+  }
+
+  const annuler = document.createElement('button');
+  annuler.className = 'btn-discret';
+  annuler.textContent = 'Annuler';
+  annuler.addEventListener('click', retourOuFermer);
+  actions.appendChild(annuler);
+
   popupContenu.append(titre, question, actions);
 }
 

@@ -6,6 +6,7 @@
   --doux: #8A8A93;
   --rate: #EF4444;
   --attente: #2A2A2E;
+  --gele: #2563EB;
   --cell: 30px;   /* côté MAX d'un point (carré arrondi) — ils remplissent la largeur */
   --dot-gap: 6px; /* écart entre points, partagé entête/points pour l'alignement */
 }
@@ -69,6 +70,20 @@ main {
   cursor: pointer;
 }
 .card-titre:hover { color: var(--doux); }
+.card-entete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.card-entete .card-titre { margin: 0; width: auto; }
+.card-gels {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--doux);
+  white-space: nowrap;
+}
 
 .bloc-titre {
   margin: 18px 0 10px;
@@ -189,6 +204,13 @@ main {
 .point:hover { transform: scale(1.12); }
 .point:active { transform: scale(0.92); }
 .point.rate { background: var(--rate); }
+.point.gele {
+  background: var(--gele);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+}
 .point.futur { opacity: 0.35; cursor: not-allowed; }
 .point.futur:hover { transform: none; }
 /* La case de la période en cours est cliquable comme le bouton (validation). */
