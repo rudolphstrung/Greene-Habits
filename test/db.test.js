@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import {
   openDb, getPlayers, getHabits, getAllHabits, getHabit, COULEURS, COULEURS_JOUEURS,
   slugifier, createPlayer, createHabit, updateHabit,
-  archiveHabit, deleteHabit, getEntries, toggle, refFor, getGels, countGelsSemaine
+  archiveHabit, deleteHabit, getEntries, toggle, refFor, getGels, countGelsSemaine, createGel
 } from '../src/db.js';
 import { todayISO, mondayOf, addDays } from '../src/dates.js';
 
@@ -424,4 +424,82 @@ test('deleteHabit supprime aussi les gels sans lever d\'erreur de contrainte', (
     .run(habit.id, jour, mondayOf(jour), jour);
   deleteHabit(db, habit.id);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM gels').get().n, 0);
+});
+
+test('createGel pose un gel sur un jour raté et retourne les gels restants', () => {
+  const { db, habit } = baseAvecHabitude();
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(todayISO(), -5), habit.id);
+  const hier = addDays(todayISO(), -1);
+  const g = createGel(db, habit.id, hier);
+  assert.equal(g.ref, hier);
+  assert.equal(g.habit_id, habit.id);
+  assert.equal(g.gels_restants, 1);
+  assert.deepEqual(getGels(db, habit.id), new Set([hier]));
+});
+
+test('createGel refuse une habitude weekly', () => {
+  const { db, habit } = baseAvecHabitude({ type: 'weekly', objectif: 2 });
+  const semainePassee = addDays(mondayOf(todayISO()), -7);
+  assert.throws(() => createGel(db, habit.id, semainePassee), /quotidienne/i);
+});
+
+test('createGel refuse le jour en cours (pas encore raté)', () => {
+  const { db, habit } = baseAvecHabitude();
+  assert.throws(() => createGel(db, habit.id, todayISO()), /fenêtre/i);
+});
+
+test('createGel refuse une date antérieure à la création', () => {
+  const { db, habit } = baseAvecHabitude();
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run('2026-07-01', habit.id);
+  assert.throws(() => createGel(db, habit.id, '2026-06-30'), /fenêtre/i);
+});
+
+test('createGel refuse un jour déjà réussi', () => {
+  const { db, habit } = baseAvecHabitude();
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(todayISO(), -5), habit.id);
+  const hier = addDays(todayISO(), -1);
+  toggle(db, habit.id, hier);
+  assert.throws(() => createGel(db, habit.id, hier), /déjà réussi/i);
+});
+
+test('createGel refuse de geler deux fois le même jour', () => {
+  const { db, habit } = baseAvecHabitude();
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(todayISO(), -5), habit.id);
+  const hier = addDays(todayISO(), -1);
+  createGel(db, habit.id, hier);
+  assert.throws(() => createGel(db, habit.id, hier), /déjà protégé/i);
+});
+
+test('createGel refuse au-delà du quota de 2 gels par semaine', () => {
+  const db = openDb(':memory:');
+  const habit = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const semaine = mondayOf(todayISO());
+  const sem_passee = addDays(semaine, -7);
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(sem_passee, -7), habit.id);
+  createGel(db, habit.id, addDays(sem_passee, 0));
+  createGel(db, habit.id, addDays(sem_passee, 1));
+  assert.throws(() => createGel(db, habit.id, addDays(sem_passee, 2)), /gel disponible/i);
+});
+
+test('le quota de gels est partagé entre toutes les habitudes du même joueur', () => {
+  const db = openDb(':memory:');
+  const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const h2 = createHabit(db, { player_id: 1, nom: 'Sport', type: 'daily', couleur: '#22C55E', objectif: 1 });
+  const semaine = mondayOf(todayISO());
+  const sem_passee = addDays(semaine, -7);
+  db.prepare('UPDATE habits SET created_at = ?').run(addDays(sem_passee, -7));
+  createGel(db, h1.id, addDays(sem_passee, 0));
+  createGel(db, h2.id, addDays(sem_passee, 1));
+  assert.throws(() => createGel(db, h1.id, addDays(sem_passee, 2)), /gel disponible/i);
+});
+
+test('le quota de gels est indépendant entre deux joueurs différents', () => {
+  const db = openDb(':memory:');
+  const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const h2 = createHabit(db, { player_id: 2, nom: 'Sport', type: 'daily', couleur: '#22C55E', objectif: 1 });
+  db.prepare('UPDATE habits SET created_at = ?').run(addDays(todayISO(), -5));
+  createGel(db, h1.id, addDays(todayISO(), -1));
+  createGel(db, h1.id, addDays(todayISO(), -2));
+  const g = createGel(db, h2.id, addDays(todayISO(), -1));
+  assert.equal(g.gels_restants, 1);
 });

@@ -376,3 +376,39 @@ export function toggle(db, habitId, dateRef) {
   }
   return suivant;
 }
+
+// Une habitude ne peut être gelée qu'un jour PASSÉ et non réussi, dans la
+// même fenêtre que toggle() (depuis la création jusqu'à hier inclus — jamais
+// le jour en cours). Le quota (2 gels/semaine par joueur, toutes habitudes
+// confondues) est vérifié juste avant l'insertion.
+export function createGel(db, habitId, dateRef) {
+  const habit = getHabit(db, habitId);
+  if (!habit) throw new Error('Habitude introuvable');
+  if (habit.type !== 'daily') throw new Error('Le gel ne s\'applique qu\'aux habitudes quotidiennes');
+
+  const ref = dateRef;
+  const debut = refFor(habit, habit.created_at);
+  const courante = refFor(habit, todayISO());
+  if (ref < debut || ref >= courante) {
+    throw new Error('Date hors de la fenêtre autorisée');
+  }
+
+  const entry = db.prepare('SELECT count, objectif FROM entries WHERE habit_id = ? AND date_ref = ?')
+    .get(habitId, ref);
+  const count = entry?.count || 0;
+  const objectifFige = entry?.objectif ?? habit.objectif;
+  if (count >= objectifFige) throw new Error('Ce jour est déjà réussi, pas besoin de gel');
+
+  const dejaGele = db.prepare('SELECT 1 FROM gels WHERE habit_id = ? AND ref = ?').get(habitId, ref);
+  if (dejaGele) throw new Error('Ce jour est déjà protégé par un gel');
+
+  const semaine = mondayOf(ref);
+  const utilises = countGelsSemaine(db, habit.player_id, semaine);
+  if (utilises >= 2) throw new Error('Plus de gel disponible cette semaine');
+
+  const { lastInsertRowid } = db.prepare(
+    'INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)'
+  ).run(habitId, ref, semaine, todayISO());
+
+  return { id: lastInsertRowid, habit_id: habitId, ref, gels_restants: 2 - (utilises + 1) };
+}
