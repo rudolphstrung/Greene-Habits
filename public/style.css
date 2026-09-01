@@ -1,122 +1,298 @@
+/* ==========================================================================
+   Greene Habits — habillage inspiré des Human Interface Guidelines d'Apple.
+
+   Les HIG sont écrites pour les plateformes Apple, pas pour le web : elles
+   servent ici de référence, pas de norme. Les valeurs chiffrées ci-dessous
+   viennent des pages officielles quand elles existent, et sont signalées :
+
+   - Échelle typographique iOS « Large (default) » : Large Title 34/41,
+     Title 3 20/25, Headline 17/22, Body 17/22, Subhead 15/20, Footnote 13/18,
+     Caption 1 12/16, Caption 2 11/13.
+     https://developer.apple.com/design/human-interface-guidelines/typography
+   - Taille de contrôle iOS : 44x44 pt par défaut, 28x28 pt au minimum ; environ
+     12 pt de marge entre deux contrôles à bord visible.
+     https://developer.apple.com/design/human-interface-guidelines/accessibility
+   - Couleurs système et gris système iOS, valeurs claires et sombres.
+     https://developer.apple.com/design/human-interface-guidelines/color
+   - Dark Mode : fonds « base » et « elevated », contraste minimum 4.5:1, 7:1
+     visé pour du texte personnalisé de petite taille.
+     https://developer.apple.com/design/human-interface-guidelines/dark-mode
+   - Les rayons de coin, les marges de page et l'épaisseur des séparateurs ne
+     sont PAS chiffrés dans les HIG : ce sont ici des conventions iOS, assumées
+     comme telles.
+
+   VARIANTE MONOCHROME. Le décor n'a plus aucune couleur : fonds, textes,
+   boutons et séparateurs sont pris dans les gris système. La couleur ne sert
+   plus QUE de donnée — identité d'un joueur, couleur d'une habitude, rouge
+   d'un jour raté, bleu d'un jour gelé. C'est la première règle de la page
+   Color appliquée à la lettre : « Avoid using the same color to mean
+   different things ». Conséquence assumée : le message d'erreur passe en
+   neutre, car le rouge appartient désormais aux jours ratés et à l'action
+   destructrice, jamais à un bandeau passager.
+   ========================================================================== */
+
 :root {
-  --fond: #0B0B0D;
-  --card: #141417;
-  --bord: #232327;
-  --texte: #EDEDEF;
-  --doux: #8A8A93;
-  --rate: #EF4444;
-  --attente: #2A2A2E;
-  --gele: #2563EB;
-  --cell: 30px;   /* côté MAX d'un point (carré arrondi) — ils remplissent la largeur */
-  --dot-gap: 6px; /* écart entre points, partagé entête/points pour l'alignement */
+  /* --- Couleurs système iOS, apparence claire --------------------------- */
+  --sys-red: rgb(255, 56, 60);
+  --sys-orange: rgb(255, 141, 40);
+  --sys-green: rgb(52, 199, 89);
+  --sys-blue: rgb(0, 136, 255);
+
+  /* Gris système iOS (clair) */
+  --gray1: rgb(142, 142, 147);
+  --gray2: rgb(174, 174, 178);
+  --gray3: rgb(199, 199, 204);
+  --gray4: rgb(209, 209, 214);
+  --gray5: rgb(229, 229, 234);
+  --gray6: rgb(242, 242, 247);
+
+  /* Rôles */
+  --fond: var(--gray6);          /* fond de page groupé */
+  --card: #FFFFFF;               /* surface élevée */
+  --fond-imbrique: var(--gray6); /* surface dans une surface (formulaire, note) */
+  --separateur: var(--gray4);
+  --texte: #000000;              /* label */
+  --doux: var(--gray1);          /* secondary label */
+  --tenu: var(--gray2);          /* tertiary label */
+  --attente: var(--gray5);       /* case vide */
+  --rate: var(--sys-red);
+  --gele: var(--sys-blue);
+  /* Plus d'accent coloré : une action se signale par le poids et le contraste,
+     comme dans une liste iOS sans teinte d'app. */
+  --accent: #000000;
+  --accent-texte: #FFFFFF;       /* texte posé sur un bouton plein */
+  --coche: #FFFFFF;              /* couleur de la coche sur pastille pleine */
+  --voile: rgba(0, 0, 0, 0.28);  /* voile derrière une feuille modale */
+
+  /* --- Échelle typographique iOS (points → px) -------------------------- */
+  --t-large-title: 34px;   --l-large-title: 41px;
+  --t-title3: 20px;        --l-title3: 25px;
+  --t-headline: 17px;      --l-headline: 22px;
+  --t-body: 17px;          --l-body: 22px;
+  --t-subhead: 15px;       --l-subhead: 20px;
+  --t-footnote: 13px;      --l-footnote: 18px;
+  --t-caption1: 12px;      --l-caption1: 16px;
+  --t-caption2: 11px;      --l-caption2: 13px;
+
+  /* --- Géométrie (conventions iOS, non chiffrées par les HIG) ----------- */
+  --marge-page: 16px;
+  --r-card: 18px;
+  --r-controle: 12px;
+  --r-case: 8px;
+  --cible: 44px;   /* taille de contrôle par défaut iOS */
+  --cible-min: 28px;
+  --cell: 40px;    /* côté max d'une case d'historique */
+  --dot-gap: 5px;
+}
+
+/* Apparence sombre : fonds « base » (page) et « elevated » (cartes, feuilles),
+   gris système sombres, rouge et bleu en variantes sombres. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sys-red: rgb(255, 66, 69);
+    --sys-orange: rgb(255, 146, 48);
+    --sys-green: rgb(48, 209, 88);
+    --sys-blue: rgb(0, 145, 255);
+
+    --gray1: rgb(142, 142, 147);
+    --gray2: rgb(99, 99, 102);
+    --gray3: rgb(72, 72, 74);
+    --gray4: rgb(58, 58, 60);
+    --gray5: rgb(44, 44, 46);
+    --gray6: rgb(28, 28, 30);
+
+    --fond: #000000;             /* base */
+    --card: var(--gray6);        /* elevated */
+    --fond-imbrique: var(--gray5);
+    --separateur: var(--gray4);
+    --texte: #FFFFFF;
+    --doux: var(--gray1);
+    --tenu: rgb(120, 120, 128);
+    --attente: var(--gray5);
+    --accent: #FFFFFF;
+    --accent-texte: #000000;
+    --coche: #000000;
+    --voile: rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Contraste renforcé : les HIG publient une seconde palette pour ce réglage. */
+@media (prefers-contrast: more) {
+  :root {
+    --sys-red: rgb(233, 21, 45);
+    --sys-green: rgb(0, 137, 50);
+    --sys-blue: rgb(30, 110, 244);   /* jour gelé uniquement */
+    --doux: rgb(108, 108, 112);
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --sys-red: rgb(255, 97, 101);
+    --sys-green: rgb(74, 217, 104);
+    --sys-blue: rgb(92, 184, 255);   /* jour gelé uniquement */
+    --doux: rgb(174, 174, 178);
+  }
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  padding: 0 16px 96px;
+  padding: 0 var(--marge-page) 96px;
   background: var(--fond);
   color: var(--texte);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  /* SF Pro est la police système d'iOS ; ailleurs, la police système locale. */
+  font: var(--t-body)/var(--l-body) -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+        'Segoe UI', system-ui, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
 }
 
+/* Entête : titre en Large Title, date en Subhead secondaire dessous — la
+   hiérarchie d'un écran iOS à grand titre. */
 header {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 28px 4px 20px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 32px 0 20px;
 }
-header h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
-header span { color: var(--doux); font-size: 13px; }
+header h1 {
+  margin: 0;
+  font-size: var(--t-large-title);
+  line-height: var(--l-large-title);
+  font-weight: 700;
+  letter-spacing: 0.37px;
+}
+header span {
+  display: inline-block;
+  color: var(--doux);
+  font-size: var(--t-subhead);
+  line-height: var(--l-subhead);
+}
+/* « mardi 1 septembre » → « Mardi 1 septembre » : seule l'initiale monte en
+   capitale, jamais chaque mot (les noms de jour et de mois restent en
+   minuscules en français). */
+header span::first-letter { text-transform: uppercase; }
 
 main {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   grid-template-columns: 1fr;
 }
-@media (min-width: 720px)  { main { grid-template-columns: repeat(2, 1fr); } }
-@media (min-width: 1100px) { main { grid-template-columns: repeat(3, 1fr); } }
+/* Le nom partage la ligne avec les cases : il faut des cartes larges pour que
+   les cases gardent 28 pt de côté (taille de contrôle minimale d'iOS). D'où
+   des seuils tardifs — la densité cède le pas à la taille des cibles. */
+@media (min-width: 1240px) { main { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1840px) { main { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 720px) {
+  body { padding-left: 24px; padding-right: 24px; }
+}
+/* Très petits écrans : on récupère de la largeur sur les marges pour que les
+   cases restent à 28 pt. */
+@media (max-width: 400px) {
+  body { padding-left: 12px; padding-right: 12px; }
+  .card { padding: 12px; }
+  /* Écart resserré entre cases : c'est ce qui permet de garder 28 pt de côté
+     sur un écran de 360 px sans rogner la cible. */
+  :root { --dot-gap: 4px; }
+}
 
+/* --- Carte joueur --------------------------------------------------------
+   Surface élevée, sans liseré coloré : la couleur d'identité du joueur passe
+   par une pastille devant son nom, comme un badge de liste iOS. */
 .card {
   background: var(--card);
-  border: 1px solid var(--bord);
-  /* Couleur d'identité du joueur, posée en JS via --joueur : un liseré fin,
-     jamais un aplat, pour ne pas cannibaliser le contraste des points. */
-  border-left: 3px solid var(--joueur, var(--bord));
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: var(--r-card);
+  padding: 16px;
 }
-/* Carte mise en tête depuis l'URL (/<slug>) : accent discrètement renforcé,
-   pas de changement de fond — juste de quoi comprendre pourquoi elle est là. */
+@media (prefers-color-scheme: light) {
+  .card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.04); }
+}
+/* Carte du joueur dont la page est ouverte : anneau neutre. Son identité est
+   déjà portée par la pastille devant son nom — inutile de la redire en gros. */
 .card-mise-en-avant {
-  border-left-width: 5px;
-  box-shadow: 0 0 0 1px var(--joueur);
+  box-shadow: 0 0 0 2px var(--separateur), 0 0 0 3px var(--fond);
+}
+
+.card-entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 14px;
 }
 .card-titre {
-  display: block;
-  width: 100%;
-  margin: 0 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   padding: 0;
   background: none;
   border: 0;
-  color: var(--joueur, var(--texte));
+  color: var(--texte);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--t-title3);
+  line-height: var(--l-title3);
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.38px;
   text-align: left;
   cursor: pointer;
 }
-.card-titre:hover { color: var(--doux); }
-.card-entete {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 0 16px;
+/* Pastille d'identité du joueur, à la place de l'ancien liseré de carte. */
+.card-titre::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--joueur, var(--accent));
+  flex-shrink: 0;
 }
-.card-entete .card-titre { margin: 0; width: auto; }
+.card-titre:hover { color: var(--doux); }
 .card-gels {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--t-footnote);
+  line-height: var(--l-footnote);
   color: var(--doux);
   white-space: nowrap;
 }
 
+/* Entête de section, façon liste groupée iOS : Footnote secondaire. */
 .bloc-titre {
-  margin: 18px 0 10px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  margin: 20px 0 8px;
+  font-size: var(--t-footnote);
+  line-height: var(--l-footnote);
+  font-weight: 400;
+  letter-spacing: -0.08px;
   color: var(--doux);
 }
-.bloc:first-of-type .bloc-titre { margin-top: 0; }
+.bloc:first-of-type .bloc-titre { margin-top: 2px; }
 
-/* Chaque bloc (DAILY / WEEKLY) est une grille : nom | points | streak.
-   `display: contents` sur .habitude fait de ses 3 enfants des cellules, donc
-   toutes les lignes s'alignent en colonnes et l'entête des jours reste calé
-   sur les points. */
+/* Chaque bloc (DAILY / WEEKLY) est une grille : nom | cases | streak |
+   validation. `display: contents` sur .habitude fait de ses enfants des
+   cellules, donc toutes les lignes s'alignent en colonnes. */
 .bloc-grille {
   display: grid;
-  /* PRIORITÉ AUX CASES : elles ont une largeur minimale garantie (9.5rem) et
-     ne s'effondrent jamais, quelle que soit la taille de l'écran. C'est le NOM
-     qui plie : il se réduit puis passe sur 2 lignes (voir .habitude-nom).
-     Colonnes : [ nom (souple, →0) | cases (min garanti, remplit) | streak ]. */
-  grid-template-columns: minmax(0, max-content) minmax(9.5rem, 1fr) max-content max-content;
+  /* Plancher de la colonne des cases : 7 cases séparées de --dot-gap ne
+     descendent jamais sous 28 pt, la taille de contrôle minimale d'iOS.
+     C'est le NOM qui plie, jamais les cases. */
+  grid-template-columns: minmax(0, max-content) minmax(16rem, 1fr) max-content max-content;
   align-items: center;
-  row-gap: 12px;
+  row-gap: 10px;
   column-gap: 8px;
 }
 .habitude { display: contents; }
+
+/* Pas de filet entre les lignes sur grand écran : chaque ligne occupe 4
+   cellules distinctes, un filet par cellule se lirait comme 4 traits coupés.
+   C'est l'espacement qui sépare. Sur mobile, où le nom occupe toute la
+   largeur, le filet redevient possible (voir la media query plus bas). */
 
 .jours-entete {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: var(--dot-gap);
-  font-size: 9px;
-  letter-spacing: 0.06em;
+  font-size: var(--t-caption2);
+  line-height: var(--l-caption2);
   color: var(--doux);
   text-align: center;
 }
@@ -124,27 +300,24 @@ main {
 .habitude-nom-zone {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
+/* Nom dans sa colonne, sur 2 lignes au maximum puis « … ». Le mot trop long
+   pour la colonne est cassé (overflow-wrap) plutôt que d'imposer sa largeur
+   à toute la carte. */
 .habitude-nom {
   background: none;
   border: 0;
   padding: 0;
   color: var(--texte);
   font: inherit;
-  font-size: 14px;
-  line-height: 1.25;
+  font-size: var(--t-subhead);
+  line-height: var(--l-subhead);
   cursor: pointer;
   text-align: left;
   min-width: 0;
-  /* Plafond de largeur : au-delà, le nom passe sur 2 lignes plutôt que de
-     s'étaler et voler la place aux cases. C'est ce qui garde les carrés daily
-     à bonne taille. Un nom court reste collé aux cases (pas de vide). */
   max-width: 11rem;
-  /* Le nom peut passer sur 2 lignes ; au-delà, « … ». `overflow-wrap: anywhere`
-     casse même un mot unique très long (ex. "khhjjjj…") pour qu'il n'impose
-     jamais sa largeur à la carte. */
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -153,109 +326,123 @@ main {
 }
 .habitude-nom:hover { color: var(--doux); }
 
+/* Croix de suppression : cible de 44x44 pt (taille de contrôle iOS par
+   défaut) obtenue par le padding, glyphe visuellement discret. */
 .btn-supprimer {
   flex-shrink: 0;
+  width: var(--cible);
+  height: var(--cible);
+  display: grid;
+  place-items: center;
   background: none;
   border: 0;
-  padding: 0 4px;
-  color: var(--doux);
+  padding: 0;
+  color: var(--tenu);
   font: inherit;
-  font-size: 16px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease;
+  transition: opacity 0.15s ease, color 0.15s ease;
 }
 .habitude-nom-zone:hover .btn-supprimer,
-.btn-supprimer:focus-visible {
-  opacity: 1;
-}
+.btn-supprimer:focus-visible { opacity: 1; }
 .btn-supprimer:hover { color: var(--rate); }
-/* Pas de survol au tactile : le bouton doit rester atteignable au doigt. */
 @media (hover: none) {
-  .btn-supprimer { opacity: 0.55; }
+  .btn-supprimer { opacity: 1; }
 }
 
 .habitude-meta {
   display: flex;
-  gap: 10px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: var(--t-caption1);
+  line-height: var(--l-caption1);
   color: var(--doux);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
+/* --- Cases d'historique --------------------------------------------------
+   Carrés arrondis, jamais sous 28x28 pt (minimum iOS) quand ils sont
+   cliquables : la grille les étire jusqu'à --cell. */
 .points {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  justify-items: center;   /* le carré, plafonné à --cell, se centre dans sa cellule */
+  justify-items: center;
   gap: var(--dot-gap);
 }
 .point {
-  width: 100%;          /* remplit la cellule… */
-  max-width: var(--cell); /* …jusqu'à --cell, puis se centre */
-  aspect-ratio: 1;      /* toujours carré */
+  width: 100%;
+  max-width: var(--cell);
+  min-width: 0;
+  aspect-ratio: 1;
   padding: 0;
   border: 0;
-  border-radius: 7px;   /* carré arrondi */
+  border-radius: var(--r-case);
   background: var(--attente);
   cursor: pointer;
-  transition: transform 0.12s ease, opacity 0.12s ease;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.15s ease;
 }
-.point:hover { transform: scale(1.12); }
-.point:active { transform: scale(0.92); }
+.point:hover { transform: scale(1.08); }
+.point:active { transform: scale(0.94); }
 .point.rate { background: var(--rate); }
 .point.gele {
   background: var(--gele);
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
 }
-.point.futur { opacity: 0.35; cursor: not-allowed; }
+.point.futur { opacity: 0.4; cursor: default; }
 .point.futur:hover { transform: none; }
-/* La case de la période en cours est cliquable comme le bouton (validation). */
+/* Case en lecture (autre joueur, page d'accueil) : rien ne la distingue à
+   l'œil — seul le curseur cesse d'annoncer une action. */
+.point.verrouille { cursor: default; }
+.point.verrouille:hover { transform: none; }
 
-/* Bouton de validation de la période en cours (grande cible à droite). */
+/* --- Bouton de validation ------------------------------------------------
+   Cible de 44x44 pt : la taille de contrôle par défaut d'iOS. */
 .valider {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: var(--cible);
+  height: var(--cible);
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  border: 2px solid rgba(255, 255, 255, 0.7); /* clair mais un peu adouci */
-  border-radius: 9px;
+  border: 2px solid var(--gray3);
+  border-radius: 50%;
   background: none;
-  color: transparent;      /* coche masquée tant que non validé */
-  font-size: 17px;
+  color: transparent;
+  font-size: 19px;
   line-height: 1;
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+              background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-.valider:hover { border-color: var(--h); color: var(--doux); }
+.valider:hover { border-color: var(--h); color: var(--tenu); }
 .valider.fait {
   background: var(--h);
   border-color: var(--h);
-  color: var(--fond);      /* coche sombre sur fond coloré */
+  color: var(--coche);
 }
-.valider:active { transform: scale(0.9); }
-.valider:disabled { opacity: 0.3; cursor: default; }
+.valider:active { transform: scale(0.92); }
+.valider:disabled { opacity: 0.35; cursor: default; }
+.valider:disabled:hover { border-color: var(--gray3); color: transparent; }
 
-/* Gratification : pop du bouton + anneau qui s'expanse à la validation. */
-.valider.pop { animation: valider-pop 0.45s ease; }
+.valider.pop { animation: valider-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .valider.pop::after {
   content: '';
   position: absolute;
   inset: -3px;
-  border-radius: 11px;
+  border-radius: 50%;
   border: 2px solid var(--h);
   animation: valider-anneau 0.5s ease-out forwards;
   pointer-events: none;
 }
 @keyframes valider-pop {
   0%   { transform: scale(1); }
-  35%  { transform: scale(1.35); }
-  60%  { transform: scale(0.9); }
+  35%  { transform: scale(1.3); }
+  60%  { transform: scale(0.93); }
   100% { transform: scale(1); }
 }
 @keyframes valider-anneau {
@@ -263,7 +450,6 @@ main {
   100% { transform: scale(1.9); opacity: 0; }
 }
 
-/* Confettis de célébration : toutes les habitudes DAILY du jour validées. */
 .confetti {
   position: fixed;
   width: 7px;
@@ -279,122 +465,180 @@ main {
   100% { transform: translateY(var(--chute)) rotate(calc(var(--rotation) + 200deg)); opacity: 0; }
 }
 
-/* Weekly : 4 semaines (en cours + 3 précédentes), mêmes carrés remplissant. */
+/* Weekly : 4 semaines seulement. Cases calées à gauche et à taille fixe
+   plutôt qu'étirées sur 7 colonnes — sinon elles flottent, loin les unes des
+   autres, sans que l'écart veuille dire quoi que ce soit. */
 .points-weekly {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, var(--cell));
+  justify-content: start;
 }
 
-/* Mobile : leaderboard rejeté tout en bas (les cartes d'abord, l'accès aux
-   habitudes prime sur le classement). Le reste est identique à desktop. */
+/* Réglage « Réduire les animations » : plus de mouvement, l'état reste lisible. */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important; }
+  .point:hover, .valider:active, .point:active { transform: none; }
+}
+
 @media (max-width: 520px) {
   body { display: flex; flex-direction: column; }
   header { order: 0; }
   main { order: 1; }
   .pied { order: 2; }
-  .leaderboard { order: 3; margin: 20px 0 0; }
+  .leaderboard { order: 3; margin: 24px 0 0; }
 
-  /* La colonne "nom" du bloc-grille a un plancher de largeur de 0 (voir
-     .bloc-grille), donc elle s'écrase en premier sur petit écran — jusqu'à
-     un retour à la ligne caractère par caractère. Fix : le nom passe en
-     pleine largeur sur sa propre ligne, au-dessus de cases/streak/validation
-     qu'on repointe explicitement sur leurs colonnes d'origine (2/3/4) pour
-     qu'ils restent alignés sous l'entête des jours malgré le décalage
-     d'auto-placement provoqué par le span du nom. */
+  /* Le nom passe en pleine largeur au-dessus de la ligne cases/streak/valider
+     (repointés sur leurs colonnes d'origine) : sinon la colonne du nom
+     s'écrase caractère par caractère face au plancher dur des cases. */
   .habitude-nom-zone { grid-column: 1 / -1; }
   .points { grid-column: 2; }
   .habitude-meta { grid-column: 3; }
   .valider { grid-column: 4; }
-  .habitude-nom { max-width: none; }
+  /* En empilé, la ligne des cases ne partage plus sa largeur avec le nom :
+     un plancher de 12 rem suffit à tenir les 28 pt, et évite tout débordement
+     sur un écran de 360 px. */
+  .bloc-grille { grid-template-columns: minmax(0, max-content) minmax(12rem, 1fr) max-content max-content; }
+  .habitude-nom { max-width: none; font-size: var(--t-body); line-height: var(--l-body); }
+  /* Le nom occupe toute la largeur : son bord haut porte le filet de
+     séparation entre deux habitudes, comme entre deux rangées de liste iOS. */
+  .bloc-grille > .habitude + .habitude .habitude-nom-zone {
+    border-top: 0.5px solid var(--separateur);
+    padding-top: 14px;
+  }
 }
 
-.card-actions { margin-top: 4px; }
+/* Sous 340 px de large (iPhone SE de 1re génération), garder 28 pt de côté
+   ferait déborder la ligne : les cases passent sous le minimum iOS plutôt que
+   de casser la mise en page. Écart assumé, signalé ici. */
+@media (max-width: 340px) {
+  .bloc-grille { grid-template-columns: minmax(0, max-content) minmax(9.5rem, 1fr) max-content max-content; }
+}
+
+/* --- Boutons -------------------------------------------------------------
+   Style iOS : action en bleu système sans cadre, action principale en pilule
+   teintée, action destructrice en rouge système. */
+.card-actions { margin-top: 12px; }
 .btn-discret {
+  min-height: var(--cible-min);
   background: none;
   border: 0;
   padding: 4px 0;
-  color: var(--doux);
+  color: var(--texte);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--t-subhead);
+  line-height: var(--l-subhead);
+  font-weight: 600;
   cursor: pointer;
 }
-.btn-discret:hover { color: var(--texte); }
+.btn-discret:hover { color: var(--doux); }
 
 .pied { display: flex; justify-content: center; margin-top: 24px; }
 .btn-principal {
-  background: var(--card);
-  border: 1px solid var(--bord);
-  border-radius: 999px;
-  padding: 10px 22px;
-  color: var(--texte);
+  min-height: var(--cible);
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--r-controle);
+  padding: 11px 20px;
+  color: var(--accent-texte);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--t-headline);
+  line-height: var(--l-headline);
+  font-weight: 600;
   cursor: pointer;
+  transition: opacity 0.15s ease;
 }
-.btn-principal:hover { border-color: var(--doux); }
+.btn-principal:hover { opacity: 0.85; }
+.btn-principal:active { opacity: 0.7; }
 
-/* Bouton d'action destructrice (suppression définitive). */
 .btn-danger {
+  min-height: var(--cible);
   background: none;
-  border: 1px solid var(--rate);
-  border-radius: 999px;
-  padding: 10px 22px;
+  border: 0;
+  border-radius: var(--r-controle);
+  padding: 11px 20px;
   color: var(--rate);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--t-headline);
+  line-height: var(--l-headline);
+  font-weight: 600;
   cursor: pointer;
 }
-.btn-danger:hover { background: var(--rate); color: var(--fond); }
+.btn-danger:hover { background: color-mix(in srgb, var(--rate) 12%, transparent); }
 
-/* Menu de la croix : choix Archiver / Supprimer / Annuler, empilés. */
+/* Menu d'action empilé, façon feuille d'action iOS : boutons pleine largeur,
+   séparés d'environ 12 pt (marge conseillée entre contrôles à bord visible). */
 .menu-suppression {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 12px;
+  margin-top: 20px;
+}
+.menu-suppression .btn-discret,
+.menu-suppression .btn-principal,
+.menu-suppression .btn-danger {
+  width: 100%;
+  text-align: center;
+}
+.menu-suppression .btn-discret {
+  min-height: var(--cible);
+  background: var(--fond-imbrique);
+  border-radius: var(--r-controle);
+  font-weight: 600;
+  font-size: var(--t-headline);
 }
 
+/* --- Formulaires --------------------------------------------------------- */
 .formulaire {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 12px;
-  background: var(--fond);
-  border: 1px solid var(--bord);
-  border-radius: 12px;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  background: var(--fond-imbrique);
+  border-radius: var(--r-controle);
 }
 .formulaire input, .formulaire select, .formulaire textarea {
-  padding: 8px 10px;
+  min-height: var(--cible);
+  padding: 10px 12px;
   background: var(--card);
-  border: 1px solid var(--bord);
-  border-radius: 8px;
+  border: 0.5px solid var(--separateur);
+  border-radius: 10px;
   color: var(--texte);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--t-body);
+  line-height: var(--l-body);
 }
-.formulaire textarea {
-  min-height: 44px;
-  resize: vertical;
+.formulaire input:focus, .formulaire select:focus, .formulaire textarea:focus {
+  outline: 2px solid var(--texte);
+  outline-offset: -1px;
 }
+.formulaire textarea { min-height: 60px; resize: vertical; }
 .champ-intention { display: grid; gap: 4px; }
 .champ-intention-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--t-footnote);
+  line-height: var(--l-footnote);
   color: var(--doux);
 }
-.formulaire-boutons { display: flex; gap: 8px; }
+.formulaire-boutons { display: flex; flex-wrap: wrap; gap: 12px; }
 
-.couleurs { display: flex; flex-wrap: wrap; gap: 8px; }
+.couleurs { display: flex; flex-wrap: wrap; gap: 12px; }
 .pastille {
-  width: 24px;
-  height: 24px;
+  width: var(--cible-min);
+  height: var(--cible-min);
   padding: 0;
   border: 2px solid transparent;
   border-radius: 50%;
   cursor: pointer;
 }
-.pastille[aria-pressed="true"] { border-color: var(--texte); }
+.pastille[aria-pressed="true"] {
+  border-color: var(--texte);
+  box-shadow: 0 0 0 2px var(--card) inset;
+}
 
+/* --- Feuille modale (popup) ---------------------------------------------
+   Sur téléphone, une feuille montée du bas avec coins hauts arrondis ; sur
+   grand écran, une carte centrée. Le fond de la feuille utilise la couleur
+   « elevated » du Dark Mode, pas la couleur de page. */
 .popup {
   position: fixed;
   inset: 0;
@@ -402,7 +646,9 @@ main {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(0, 0, 0, 0.72);
+  background: var(--voile);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   z-index: 10;
 }
 .popup-boite {
@@ -411,131 +657,210 @@ main {
   max-width: 520px;
   max-height: 85vh;
   overflow-y: auto;
-  padding: 24px;
+  padding: 24px 20px 28px;
   background: var(--card);
-  border: 1px solid var(--bord);
-  border-radius: 18px;
+  border-radius: 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
 }
+@media (max-width: 520px) {
+  .popup { align-items: flex-end; padding: 0; }
+  .popup-boite {
+    max-height: 92vh;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: 40px;
+  }
+}
+/* Bouton de fermeture d'une feuille : cible de 44x44 pt, glyphe dans une
+   pastille grise — le motif de fermeture des feuilles iOS. */
 .popup-croix {
   position: absolute;
-  top: 14px;
+  top: 16px;
   right: 16px;
-  background: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--fond-imbrique);
   border: 0;
+  border-radius: 50%;
   color: var(--doux);
-  font-size: 26px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
+.popup-croix:hover { color: var(--texte); }
 
-.stats { display: flex; gap: 22px; margin: 14px 0 20px; }
-.stat-valeur { font-size: 20px; font-weight: 600; }
-.stat-label { font-size: 10px; letter-spacing: 0.08em; color: var(--doux); text-transform: uppercase; }
+#popup-contenu h2 {
+  font-size: var(--t-title3);
+  line-height: var(--l-title3);
+  font-weight: 600;
+  letter-spacing: 0.38px;
+  padding-right: 38px;
+}
 
-.mois { margin-bottom: 16px; }
-.mois-nom { margin-bottom: 7px; font-size: 11px; color: var(--doux); }
+.stats {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0 20px;
+}
+.stats > div {
+  flex: 1;
+  padding: 12px;
+  background: var(--fond-imbrique);
+  border-radius: var(--r-controle);
+  text-align: center;
+}
+.stat-valeur {
+  font-size: var(--t-title3);
+  line-height: var(--l-title3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stat-label {
+  margin-top: 2px;
+  font-size: var(--t-caption1);
+  line-height: var(--l-caption1);
+  color: var(--doux);
+}
+
+.mois { margin-bottom: 20px; }
+.mois-nom {
+  margin-bottom: 8px;
+  font-size: var(--t-footnote);
+  line-height: var(--l-footnote);
+  color: var(--doux);
+  text-transform: capitalize;
+}
 .mois-points {
   display: grid;
-  grid-template-columns: repeat(7, 20px);
-  gap: 5px;
+  grid-template-columns: repeat(7, var(--cible-min));
+  gap: 6px;
 }
-.mois-points .point { width: 20px; height: 20px; }
+.mois-points .point { width: var(--cible-min); height: var(--cible-min); max-width: none; }
 
+/* --- Classement ----------------------------------------------------------
+   Liste groupée : rangées séparées par des filets fins, pas des pilules. */
 .leaderboard {
-  margin: 0 0 20px;
-  padding: 16px 18px;
+  margin: 0 0 16px;
+  padding: 14px 16px 6px;
   background: var(--card);
-  border: 1px solid var(--bord);
-  border-radius: 16px;
+  border-radius: var(--r-card);
+}
+@media (prefers-color-scheme: light) {
+  .leaderboard { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.04); }
 }
 .leaderboard-entete {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 .leaderboard-entete h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--t-headline);
+  line-height: var(--l-headline);
   font-weight: 600;
-  letter-spacing: 0.02em;
 }
 .leaderboard-mois {
-  font-size: 12px;
+  font-size: var(--t-footnote);
+  line-height: var(--l-footnote);
   color: var(--doux);
   text-transform: capitalize;
 }
-.leaderboard-liste { display: grid; gap: 6px; }
+.leaderboard-liste { display: grid; }
 .leaderboard-ligne {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 13px;
+  gap: 12px;
+  min-height: var(--cible);
+  padding: 4px 0;
+  font-size: var(--t-body);
+  line-height: var(--l-body);
+  border-top: 0.5px solid var(--separateur);
 }
+.leaderboard-ligne:first-child { border-top: 0; }
 .leaderboard-rang {
-  width: 20px;
+  width: 22px;
   color: var(--doux);
-  font-size: 12px;
+  font-size: var(--t-subhead);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .leaderboard-nom { flex: 1; }
-.leaderboard-compte { color: var(--doux); font-size: 12px; white-space: nowrap; }
-.leaderboard-ligne-premier { background: var(--attente); }
+.leaderboard-compte {
+  color: var(--doux);
+  font-size: var(--t-subhead);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .leaderboard-ligne-premier .leaderboard-nom { font-weight: 600; }
+.leaderboard-ligne-premier .leaderboard-compte { color: var(--texte); font-weight: 600; }
 .leaderboard-ligne-dernier .leaderboard-compte { color: var(--rate); }
-.leaderboard-neutre { margin: 0; color: var(--doux); font-size: 13px; }
+.leaderboard-neutre {
+  margin: 0 0 10px;
+  color: var(--doux);
+  font-size: var(--t-subhead);
+  line-height: var(--l-subhead);
+}
 
 .note,
 .profil-trahisons {
-  margin: 6px 0 4px;
-  padding: 8px 10px;
-  background: var(--fond);
-  border: 1px solid var(--bord);
-  border-radius: 8px;
-  color: var(--doux);
-  font-size: 12px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  background: var(--fond-imbrique);
+  border-radius: var(--r-controle);
+  color: var(--texte);
+  font-size: var(--t-subhead);
+  line-height: var(--l-subhead);
   white-space: pre-wrap;
 }
+.profil-trahisons { color: var(--doux); }
 
 .retour-profil {
-  display: inline-block;
-  margin: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--cible-min);
+  margin: 0 0 8px;
   background: none;
   border: 0;
   padding: 0;
-  color: var(--doux);
+  color: var(--texte);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--t-body);
+  line-height: var(--l-body);
+  font-weight: 600;
   cursor: pointer;
 }
-.retour-profil:hover { color: var(--texte); }
+.retour-profil:hover { color: var(--doux); }
 
-.profil-section { margin-top: 20px; }
-/* `:first-of-type` ne marcherait pas ici : il compare par balise, et le
-   résumé des trahisons est un div placé avant les sections. */
+.profil-section { margin-top: 24px; }
 .profil-section:first-child { margin-top: 16px; }
+.profil-section .bloc-titre { margin: 0 0 6px; }
 
+/* Rangée de liste iOS : filet fin entre les lignes, chevron implicite. */
 .profil-ligne {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  margin-top: 6px;
-  padding: 8px 10px;
-  background: var(--fond);
-  border: 1px solid var(--bord);
-  border-radius: 10px;
+  min-height: var(--cible);
+  margin: 0;
+  padding: 10px 0;
+  background: none;
+  border: 0;
+  border-top: 0.5px solid var(--separateur);
   color: var(--texte);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--t-body);
+  line-height: var(--l-body);
   text-align: left;
   cursor: pointer;
 }
-.profil-ligne:hover { border-color: var(--doux); }
-.profil-ligne-archivee { opacity: 0.55; }
+.profil-section .profil-ligne:first-of-type { border-top: 0; }
+.profil-ligne:hover { background: var(--fond-imbrique); }
+.profil-ligne-archivee { color: var(--doux); }
 
 .profil-pastille {
   width: 12px;
@@ -544,28 +869,49 @@ main {
   flex-shrink: 0;
 }
 .profil-nom { flex: 1; }
-.profil-infos { color: var(--doux); font-size: 12px; white-space: nowrap; }
+.profil-infos {
+  color: var(--doux);
+  font-size: var(--t-footnote);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 
 .profil-lien {
   display: block;
-  margin: 4px 0 10px;
+  margin: 6px 0 12px;
   color: var(--doux);
-  font-size: 12px;
-  text-decoration: none;
+  font-size: var(--t-subhead);
+  line-height: var(--l-subhead);
+  text-decoration: underline;
+  text-underline-offset: 3px;
   word-break: break-all;
 }
-.profil-lien:hover { color: var(--texte); text-decoration: underline; }
+.profil-lien:hover { text-decoration: underline; }
 
+/* Message transitoire : capsule neutre élevée. Le rouge est réservé aux jours
+   ratés et à l'action destructrice — le réutiliser ici lui ferait dire deux
+   choses différentes. */
 .toast {
   position: fixed;
-  bottom: 22px;
+  bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 10px 18px;
-  background: var(--rate);
+  max-width: calc(100% - 32px);
+  padding: 12px 18px;
+  background: var(--accent);
   border-radius: 999px;
-  font-size: 13px;
+  color: var(--accent-texte);
+  font-size: var(--t-subhead);
+  line-height: var(--l-subhead);
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   z-index: 20;
 }
 
 .cache { display: none; }
+
+/* Anneau de focus visible au clavier, sur tous les contrôles. */
+:focus-visible {
+  outline: 2px solid var(--texte);
+  outline-offset: 2px;
+}
