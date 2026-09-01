@@ -13,6 +13,11 @@ function format(d) {
 }
 
 export function todayISO(now = new Date()) {
+  // Seam de test : GREENE_TODAY fige « aujourd'hui » pour les tests dont
+  // l'assertion dépend du calendrier réel — les trahisons ne comptent que dans
+  // le mois en cours, or un test exécuté le 1er du mois n'a aucun jour passé à
+  // juger et échoue à tort. Jamais définie en production.
+  if (process.env.GREENE_TODAY) return process.env.GREENE_TODAY;
   // en-CA rend justement 'YYYY-MM-DD'
   return now.toLocaleDateString('en-CA', { timeZone: 'Europe/Zurich' });
 }

@@ -1,8 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb } from '../src/db.js';
+import { openDb, getPlayers, getHabit, slugifier } from '../src/db.js';
 import { createServer } from '../src/server.js';
 import { todayISO, mondayOf, addDays, firstOfMonth } from '../src/dates.js';
+
+// Le serveur exige désormais, sur chaque requête mutante, le slug du joueur
+// dont la page est ouverte (`/anatole`). Les tests qui ne portent pas sur
+// cette règle n'ont pas à le fournir : on déduit ici le slug du propriétaire
+// légitime (player_id du corps, propriétaire de habit_id, ou habitude visée
+// dans l'URL). Un test d'appartenance passe `joueur` explicitement — y compris
+// `null` pour simuler la page d'accueil, où personne n'agit.
+function slugLegitime(db, chemin, corps) {
+  const parId = (playerId) => {
+    const joueur = getPlayers(db).find((j) => j.id === Number(playerId));
+    return joueur ? slugifier(joueur.nom) : null;
+  };
+  if (corps.player_id !== undefined) return parId(corps.player_id);
+  const habitId = corps.habit_id !== undefined
+    ? Number(corps.habit_id)
+    : Number(chemin.match(/^\/api\/habits\/(\d+)/)?.[1]);
+  if (!Number.isInteger(habitId)) return null;
+  const habit = getHabit(db, habitId);
+  return habit ? parId(habit.player_id) : null;
+}
+
+// Les trahisons ne se comptent que dans le mois calendaire en cours : un test
+// qui a besoin de jours passés à juger échoue à tort s'il tourne le 1er du
+// mois (aucun jour écoulé). Ces tests-là figent « aujourd'hui » via le seam
+// GREENE_TODAY. Une date FIGÉE ne se périme pas, contrairement à un
+// « aujourd'hui = ... » codé en dur pendant que le temps réel avance.
+const JOUR_FIGE = '2026-09-16'; // un mercredi, en milieu de mois
+
+function figerJour() {
+  process.env.GREENE_TODAY = JOUR_FIGE;
+  return () => { delete process.env.GREENE_TODAY; };
+}
 
 async function demarrer() {
   const db = openDb(':memory:');
@@ -17,11 +49,18 @@ async function demarrer() {
       const rep = await fetch(base + chemin, options);
       return { statut: rep.status, corps: await rep.json().catch(() => null) };
     },
-    post: (chemin, donnees, methode = 'POST') => ({
-      method: methode,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(donnees)
-    })
+    post: (chemin, donnees, methode = 'POST') => {
+      const corps = { ...donnees };
+      if (corps.joueur === undefined) {
+        const slug = slugLegitime(db, chemin, corps);
+        if (slug) corps.joueur = slug;
+      }
+      return {
+        method: methode,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corps)
+      };
+    }
   };
 }
 
@@ -568,6 +607,7 @@ test('GET /api/history reflète l\'état gele et neutralise le taux de réussite
 // --- Tâche 2 : leaderboard mensuel des trahisons + profil joueur ----------
 
 test('le leaderboard classe le moins trahi en premier', async () => {
+  const liberer = figerJour();
   const s = await demarrer();
   try {
     const avant = (await s.json('/api/state')).corps;
@@ -587,6 +627,7 @@ test('le leaderboard classe le moins trahi en premier', async () => {
     assert.ok(corps.leaderboard[5].trahisons > 0);
   } finally {
     await s.fermer();
+    liberer();
   }
 });
 
@@ -607,6 +648,7 @@ test('la période en cours et la période de création ne sont pas des trahisons
 });
 
 test('une habitude archivée garde ses trahisons mais n\'en accumule plus', async () => {
+  const liberer = figerJour();
   const s = await demarrer();
   try {
     // player_id 1 = Nicolas (premier joueur amorcé).
@@ -634,10 +676,12 @@ test('une habitude archivée garde ses trahisons mais n\'en accumule plus', asyn
     assert.equal(apres, 5, 'la journée d\'archivage (J-5) est partielle, elle ne compte pas');
   } finally {
     await s.fermer();
+    liberer();
   }
 });
 
 test('jour de création : compte pour une quotidienne, grâce pour la semaine d\'une hebdo', async () => {
+  const liberer = figerJour();
   const s = await demarrer();
   try {
     // Quotidienne créée hier, non validée → hier (= jour de création) compte.
@@ -659,6 +703,7 @@ test('jour de création : compte pour une quotidienne, grâce pour la semaine d\
     assert.equal(weekly, 0, 'la semaine de création d\'une hebdo garde sa grâce');
   } finally {
     await s.fermer();
+    liberer();
   }
 });
 
@@ -822,5 +867,155 @@ test('un fichier manquant avec extension rend toujours 404', async () => {
   try {
     const rep = await fetch(s.base + '/inexistant.css');
     assert.equal(rep.status, 404);
+  } finally { await s.fermer(); }
+});
+
+// --- Appartenance : chacun n'agit que sur ses propres habitudes ------------
+// L'identité est le slug de la page ouverte, envoyé dans le corps. Pas de
+// comptes : la garde attrape le mauvais onglet et la page d'accueil, elle ne
+// prétend pas résister à un curl monté à la main (groupe de confiance).
+
+// Crée une habitude quotidienne appartenant à Nicolas (player_id 1) et la
+// recule de quelques jours pour que les jours passés soient actionnables.
+async function habitudeDeNicolas(s) {
+  await s.json('/api/habits', s.post('/api/habits', {
+    player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+  }));
+  s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -5));
+}
+
+test('POST /api/toggle avec le slug d\'un autre joueur rend 403 et ne coche rien', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut, corps } = await s.json('/api/toggle',
+      s.post('/api/toggle', { habit_id: 1, date_ref: todayISO(), joueur: 'axel' }));
+    assert.equal(statut, 403);
+    assert.ok(corps.erreur);
+    const etat = (await s.json('/api/state')).corps;
+    const point = etat.players[0].habits[0].points.find((p) => p.ref === todayISO());
+    assert.equal(point.count, 0, 'aucune entrée écrite malgré la requête refusée');
+  } finally { await s.fermer(); }
+});
+
+test('POST /api/toggle sans slug (page d\'accueil) rend 403', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut } = await s.json('/api/toggle',
+      s.post('/api/toggle', { habit_id: 1, date_ref: todayISO(), joueur: null }));
+    assert.equal(statut, 403);
+  } finally { await s.fermer(); }
+});
+
+test('POST /api/toggle avec un slug inconnu rend 403', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut } = await s.json('/api/toggle',
+      s.post('/api/toggle', { habit_id: 1, date_ref: todayISO(), joueur: 'fantome' }));
+    assert.equal(statut, 403);
+  } finally { await s.fermer(); }
+});
+
+test('POST /api/toggle avec le slug du propriétaire passe', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut, corps } = await s.json('/api/toggle',
+      s.post('/api/toggle', { habit_id: 1, date_ref: todayISO(), joueur: 'nicolas' }));
+    assert.equal(statut, 200);
+    assert.equal(corps.count, 1);
+  } finally { await s.fermer(); }
+});
+
+test('POST /api/gels sur l\'habitude d\'un autre rend 403', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut } = await s.json('/api/gels',
+      s.post('/api/gels', { habit_id: 1, date_ref: addDays(todayISO(), -1), joueur: 'axel' }));
+    assert.equal(statut, 403);
+    const etat = (await s.json('/api/state')).corps;
+    assert.equal(etat.players[0].gels_restants, 2, 'aucun gel dépensé');
+  } finally { await s.fermer(); }
+});
+
+test('PATCH /api/habits/:id sur l\'habitude d\'un autre rend 403 et ne modifie rien', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut } = await s.json('/api/habits/1', s.post('/api/habits/1', {
+      nom: 'Détournée', couleur: '#22C55E', objectif: 1, joueur: 'axel'
+    }, 'PATCH'));
+    assert.equal(statut, 403);
+    const { corps } = await s.json('/api/history?habit_id=1');
+    assert.equal(corps.nom, 'Lecture');
+  } finally { await s.fermer(); }
+});
+
+test('POST /api/habits/:id/archive sur l\'habitude d\'un autre rend 403', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut } = await s.json('/api/habits/1/archive',
+      s.post('/api/habits/1/archive', { joueur: 'axel' }));
+    assert.equal(statut, 403);
+    const etat = (await s.json('/api/state')).corps;
+    assert.equal(etat.players[0].habits.length, 1, 'l\'habitude est toujours active');
+  } finally { await s.fermer(); }
+});
+
+test('POST /api/habits/:id/delete sur l\'habitude d\'un autre rend 403', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const { statut } = await s.json('/api/habits/1/delete',
+      s.post('/api/habits/1/delete', { joueur: 'axel' }));
+    assert.equal(statut, 403);
+    assert.equal((await s.json('/api/history?habit_id=1')).statut, 200);
+  } finally { await s.fermer(); }
+});
+
+test('POST /api/habits pour le compte d\'un autre joueur rend 403', async () => {
+  const s = await demarrer();
+  try {
+    const { statut } = await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Imposée', type: 'daily', couleur: '#4C6FFF', objectif: 1,
+      joueur: 'axel'
+    }));
+    assert.equal(statut, 403);
+    const etat = (await s.json('/api/state')).corps;
+    assert.equal(etat.players[0].habits.length, 0);
+  } finally { await s.fermer(); }
+});
+
+test('une habitude inexistante rend toujours 400, jamais 403 (message inchangé)', async () => {
+  const s = await demarrer();
+  try {
+    const { statut } = await s.json('/api/toggle',
+      s.post('/api/toggle', { habit_id: 9999, date_ref: todayISO(), joueur: 'nicolas' }));
+    assert.equal(statut, 400);
+  } finally { await s.fermer(); }
+});
+
+test('les lectures restent ouvertes à tous sans slug', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    assert.equal((await s.json('/api/state')).statut, 200);
+    assert.equal((await s.json('/api/history?habit_id=1')).statut, 200);
+    assert.equal((await s.json('/api/profile?player_id=1')).statut, 200);
+  } finally { await s.fermer(); }
+});
+
+test('history et profil exposent player_id (le front en déduit qui peut agir)', async () => {
+  const s = await demarrer();
+  try {
+    await habitudeDeNicolas(s);
+    const histo = (await s.json('/api/history?habit_id=1')).corps;
+    assert.equal(histo.player_id, 1);
+    const profil = (await s.json('/api/profile?player_id=1')).corps;
+    assert.equal(profil.actives[0].player_id, 1);
   } finally { await s.fermer(); }
 });

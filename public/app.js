@@ -11,12 +11,29 @@ async function api(chemin, options) {
   return corps;
 }
 
+// Toute requête qui écrit porte le slug de la page ouverte (`/anatole`) :
+// c'est la seule identité dont dispose l'app (aucun compte). Le serveur refuse
+// (403) si ce slug n'est pas celui du propriétaire de l'habitude visée. Sur la
+// page d'accueil le slug est null : rien n'est modifiable, de part et d'autre.
 const envoyer = (chemin, donnees, methode = 'POST') =>
   api(chemin, {
     method: methode,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(donnees)
+    body: JSON.stringify({ joueur: segmentJoueurURL(), ...donnees })
   });
+
+// Le joueur dont la page est ouverte, seul autorisé à agir. null sur `/` ou
+// pour un slug inconnu : la page est alors en lecture pour tout le monde.
+function idJoueurCible() {
+  const slug = segmentJoueurURL();
+  if (!slug || !etat) return null;
+  const joueur = etat.players.find((j) => j.slug === slug);
+  return joueur ? joueur.id : null;
+}
+
+function peutAgir(playerId) {
+  return playerId != null && playerId === idJoueurCible();
+}
 
 function signaler(message) {
   const toast = document.getElementById('toast');
@@ -159,9 +176,12 @@ async function executerValidation(habit, ref) {
 
 // --- Rendu ----------------------------------------------------------------
 
-function creerPoint(habit, point) {
+function creerPoint(habit, point, actionnable = false) {
   const bouton = document.createElement('button');
   bouton.className = 'point';
+  // Case d'un autre joueur (ou page d'accueil) : elle reste affichée à
+  // l'identique, mais inerte — le gestionnaire de clic global s'arrête dessus.
+  if (!actionnable) bouton.classList.add('verrouille');
   bouton.dataset.habit = habit.id;
   bouton.dataset.ref = point.ref;
   bouton.dataset.type = habit.type;
@@ -186,7 +206,7 @@ function creerPoint(habit, point) {
 // Une habitude = une seule ligne. `display: contents` (en CSS) fait remonter
 // ses 3 enfants — nom, points, streak — comme cellules de la grille du bloc,
 // pour que toutes les lignes s'alignent en colonnes.
-function creerHabitude(habit) {
+function creerHabitude(habit, actionnable) {
   const bloc = document.createElement('div');
   bloc.className = 'habitude';
 
@@ -198,22 +218,27 @@ function creerHabitude(habit) {
   nom.textContent = habit.nom;
   nom.addEventListener('click', () => window.ouvrirHistorique(habit.id));
 
-  const supprimer = document.createElement('button');
-  supprimer.type = 'button';
-  supprimer.className = 'btn-supprimer';
-  supprimer.textContent = '×';
-  supprimer.setAttribute('aria-label', `Supprimer ${habit.nom}`);
-  supprimer.addEventListener('click', (e) => {
-    e.stopPropagation();
-    menuSuppression(habit);
-  });
+  nomZone.appendChild(nom);
 
-  nomZone.append(nom, supprimer);
+  // La croix (archiver / supprimer) n'existe que sur la carte du joueur dont
+  // la page est ouverte : chez les autres, elle n'est simplement pas rendue.
+  if (actionnable) {
+    const supprimer = document.createElement('button');
+    supprimer.type = 'button';
+    supprimer.className = 'btn-supprimer';
+    supprimer.textContent = '×';
+    supprimer.setAttribute('aria-label', `Supprimer ${habit.nom}`);
+    supprimer.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menuSuppression(habit);
+    });
+    nomZone.appendChild(supprimer);
+  }
 
   const points = document.createElement('div');
   // Daily : 7 colonnes alignées sous l'entête LU..DI. Weekly : 4 semaines.
   points.className = habit.type === 'weekly' ? 'points points-weekly' : 'points';
-  habit.points.forEach((p) => points.appendChild(creerPoint(habit, p)));
+  habit.points.forEach((p) => points.appendChild(creerPoint(habit, p, actionnable)));
 
   const meta = document.createElement('div');
   meta.className = 'habitude-meta';
@@ -238,7 +263,14 @@ function creerHabitude(habit) {
   if (fait) valider.classList.add('fait');
   valider.setAttribute('aria-label',
     fait ? `Annuler la validation de ${habit.nom}` : `Valider ${habit.nom} pour la période en cours`);
-  if (pointActuel) {
+  if (!actionnable) {
+    // Carte d'un autre joueur : le bouton disparaît, mais l'élément reste en
+    // place (invisible) — c'est la 4e colonne de la grille, la retirer
+    // décalerait les cases et le streak de toutes les lignes suivantes.
+    valider.disabled = true;
+    valider.style.visibility = 'hidden';
+    valider.setAttribute('aria-hidden', 'true');
+  } else if (pointActuel) {
     valider.addEventListener('click', () => validerPeriode(habit, pointActuel.ref));
   } else {
     valider.disabled = true; // période en cours hors fenêtre (ne devrait pas arriver)
@@ -248,7 +280,7 @@ function creerHabitude(habit) {
   return bloc;
 }
 
-function creerBloc(titre, habits, avecEnteteJours) {
+function creerBloc(titre, habits, avecEnteteJours, actionnable) {
   if (habits.length === 0) return null;
   const bloc = document.createElement('div');
   bloc.className = 'bloc';
@@ -277,7 +309,7 @@ function creerBloc(titre, habits, avecEnteteJours) {
     grille.appendChild(document.createElement('span'));
   }
 
-  habits.forEach((h) => grille.appendChild(creerHabitude(h)));
+  habits.forEach((h) => grille.appendChild(creerHabitude(h, actionnable)));
   bloc.appendChild(grille);
   return bloc;
 }
@@ -306,18 +338,24 @@ function creerCard(joueur, misEnAvant = false) {
   entete.append(titre, gels);
   card.appendChild(entete);
 
-  const daily = creerBloc('DAILY', joueur.habits.filter((h) => h.type === 'daily'), true);
-  const weekly = creerBloc('WEEKLY', joueur.habits.filter((h) => h.type === 'weekly'), false);
+  // Seule la carte du joueur dont la page est ouverte est actionnable : sur
+  // `/` (aucun slug) aucune carte ne l'est, la page entière est en lecture.
+  const actionnable = misEnAvant;
+
+  const daily = creerBloc('DAILY', joueur.habits.filter((h) => h.type === 'daily'), true, actionnable);
+  const weekly = creerBloc('WEEKLY', joueur.habits.filter((h) => h.type === 'weekly'), false, actionnable);
   if (daily) card.appendChild(daily);
   if (weekly) card.appendChild(weekly);
 
   const actions = document.createElement('div');
   actions.className = 'card-actions';
-  const ajouter = document.createElement('button');
-  ajouter.className = 'btn-discret';
-  ajouter.textContent = '+ habitude';
-  ajouter.addEventListener('click', () => formulaireHabitude(card, joueur.id, ajouter));
-  actions.appendChild(ajouter);
+  if (actionnable) {
+    const ajouter = document.createElement('button');
+    ajouter.className = 'btn-discret';
+    ajouter.textContent = '+ habitude';
+    ajouter.addEventListener('click', () => formulaireHabitude(card, joueur.id, ajouter));
+    actions.appendChild(ajouter);
+  }
   card.appendChild(actions);
 
   return card;
@@ -555,6 +593,8 @@ function formulaireHabitude(card, playerId, declencheur) {
 document.addEventListener('click', async (e) => {
   const point = e.target.closest('.point');
   if (!point || point.classList.contains('futur')) return;
+  // Case d'un autre joueur, ou page d'accueil : lecture seule.
+  if (point.classList.contains('verrouille')) return;
   const habitId = Number(point.dataset.habit);
   const ref = point.dataset.ref;
 
@@ -661,6 +701,9 @@ function creerBlocIntention(donnees) {
 
 function rendreHistorique(donnees) {
   popupContenu.textContent = '';
+  // L'historique se consulte pour tout le monde ; il ne s'édite que depuis la
+  // page du propriétaire (`player_id` vient de /api/history).
+  const actionnable = peutAgir(donnees.player_id);
 
   if (origineHistorique === 'profil') {
     const retour = document.createElement('button');
@@ -698,11 +741,15 @@ function rendreHistorique(donnees) {
 
     const grille = document.createElement('div');
     grille.className = 'mois-points';
-    points.forEach((p) => grille.appendChild(creerPoint(donnees, p)));
+    points.forEach((p) => grille.appendChild(creerPoint(donnees, p, actionnable)));
 
     mois.append(nom, grille);
     popupContenu.appendChild(mois);
   });
+
+  // Modifier / Archiver / Supprimer : rien de tout ça sur l'habitude d'un
+  // autre — les boutons ne sont pas rendus.
+  if (!actionnable) return;
 
   const actions = document.createElement('div');
   actions.className = 'formulaire-boutons';

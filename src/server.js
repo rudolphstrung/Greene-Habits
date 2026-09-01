@@ -195,6 +195,9 @@ function statsHabit(habit, entries, aujourdhui, gels) {
 
   return {
     id: habit.id,
+    // Exposé pour le front : il en déduit si la page ouverte (`/anatole`) est
+    // celle du propriétaire, donc si les commandes doivent être rendues.
+    player_id: habit.player_id,
     nom: habit.nom,
     type: habit.type,
     couleur: habit.couleur,
@@ -299,6 +302,34 @@ function servirStatique(res, urlPath) {
   fs.createReadStream(fichier).pipe(res);
 }
 
+// --- Appartenance ---------------------------------------------------------
+
+// L'app n'a pas de comptes : l'identité d'une requête est le slug de la page
+// ouverte (`/anatole`), que le front joint au corps de chaque requête qui
+// écrit. Le serveur vérifie que ce slug est bien celui du propriétaire de
+// l'habitude visée. Ça attrape l'onglet resté sur la mauvaise page et la page
+// d'accueil (aucun slug, donc aucune action) ; ça ne prétend pas résister à
+// une requête forgée à la main — le groupe est un groupe de confiance.
+function joueurDuSlug(db, slug) {
+  if (typeof slug !== 'string' || !slug) return null;
+  const cible = slug.toLowerCase();
+  return getPlayers(db).find((j) => slugifier(j.nom) === cible) || null;
+}
+
+// true = requête à refuser. Une habitude inexistante n'est PAS un refus
+// d'appartenance : on laisse la route lever son « Habitude introuvable »
+// habituel (400), pour ne pas transformer une faute de frappe en 403.
+function refuseHabitude(db, slug, habitId) {
+  const habit = getHabit(db, habitId);
+  if (!habit) return false;
+  const joueur = joueurDuSlug(db, slug);
+  return !joueur || joueur.id !== habit.player_id;
+}
+
+const REFUS = {
+  erreur: 'Cette habitude n\'est pas la tienne : ouvre ton lien perso pour agir dessus'
+};
+
 export function createServer(db) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -334,34 +365,59 @@ export function createServer(db) {
 
       if (req.method === 'POST' && chemin === '/api/habits') {
         const corps = await lireCorps(req);
+        // À la création il n'y a pas encore d'habitude : on compare le slug de
+        // la page au joueur pour qui l'habitude est créée.
+        const joueur = joueurDuSlug(db, corps.joueur);
+        if (!joueur || joueur.id !== Number(corps.player_id)) {
+          return envoyerJson(res, 403, {
+            erreur: 'Ouvre ton lien perso pour créer une habitude sur ta carte'
+          });
+        }
         return envoyerJson(res, 201, createHabit(db, corps));
       }
 
       const majHabit = chemin.match(/^\/api\/habits\/(\d+)$/);
       if (req.method === 'PATCH' && majHabit) {
         const corps = await lireCorps(req);
+        if (refuseHabitude(db, corps.joueur, Number(majHabit[1]))) {
+          return envoyerJson(res, 403, REFUS);
+        }
         return envoyerJson(res, 200, updateHabit(db, Number(majHabit[1]), corps));
       }
 
       const suppr = chemin.match(/^\/api\/habits\/(\d+)\/delete$/);
       if (req.method === 'POST' && suppr) {
+        const { joueur } = await lireCorps(req);
+        if (refuseHabitude(db, joueur, Number(suppr[1]))) {
+          return envoyerJson(res, 403, REFUS);
+        }
         deleteHabit(db, Number(suppr[1]));
         return envoyerJson(res, 200, { ok: true });
       }
 
       const archive = chemin.match(/^\/api\/habits\/(\d+)\/archive$/);
       if (req.method === 'POST' && archive) {
+        const { joueur } = await lireCorps(req);
+        if (refuseHabitude(db, joueur, Number(archive[1]))) {
+          return envoyerJson(res, 403, REFUS);
+        }
         archiveHabit(db, Number(archive[1]));
         return envoyerJson(res, 200, { ok: true });
       }
 
       if (req.method === 'POST' && chemin === '/api/toggle') {
-        const { habit_id, date_ref } = await lireCorps(req);
+        const { habit_id, date_ref, joueur } = await lireCorps(req);
+        if (refuseHabitude(db, joueur, Number(habit_id))) {
+          return envoyerJson(res, 403, REFUS);
+        }
         return envoyerJson(res, 200, { count: toggle(db, Number(habit_id), date_ref) });
       }
 
       if (req.method === 'POST' && chemin === '/api/gels') {
-        const { habit_id, date_ref } = await lireCorps(req);
+        const { habit_id, date_ref, joueur } = await lireCorps(req);
+        if (refuseHabitude(db, joueur, Number(habit_id))) {
+          return envoyerJson(res, 403, REFUS);
+        }
         return envoyerJson(res, 201, createGel(db, Number(habit_id), date_ref));
       }
 
