@@ -423,7 +423,7 @@ test('POST /api/gels pose un gel sur un jour raté', async () => {
     const { statut, corps } = await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: hier }));
     assert.equal(statut, 201);
     assert.equal(corps.ref, hier);
-    assert.equal(corps.gels_restants, 1);
+    assert.equal(corps.gels_restants, 0);
   } finally {
     await s.fermer();
   }
@@ -436,14 +436,12 @@ test('POST /api/gels refuse au-delà du quota avec un 400', async () => {
       player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
     }));
     s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run(addDays(todayISO(), -14));
-    // Tous les 3 gels dans la semaine passée pour assurer qu'ils sont dans la même semaine ISO
+    // Deux jours de la semaine passée : le 1er gel passe, le 2e dépasse le quota de 1.
     const semainePassee = addDays(mondayOf(todayISO()), -7);
-    const j1 = semainePassee;
-    const j2 = addDays(semainePassee, 1);
-    const j3 = addDays(semainePassee, 2);
-    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: j1 }));
-    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: j2 }));
-    const { statut, corps } = await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: j3 }));
+    const premier = await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: semainePassee }));
+    assert.equal(premier.statut, 201);
+    const { statut, corps } = await s.json('/api/gels',
+      s.post('/api/gels', { habit_id: 1, date_ref: addDays(semainePassee, 1) }));
     assert.equal(statut, 400);
     assert.ok(corps.erreur);
   } finally {
@@ -561,7 +559,8 @@ test('/api/state expose gels_restants par joueur, décrémenté après usage', a
   const s = await demarrer();
   try {
     const avant = (await s.json('/api/state')).corps;
-    assert.equal(avant.players.find((p) => p.nom === 'Nicolas').gels_restants, 2);
+    assert.equal(avant.players.find((p) => p.nom === 'Nicolas').gels_restants, 1);
+    assert.equal(avant.players.find((p) => p.nom === 'Nicolas').gels_max, 1);
 
     await s.json('/api/habits', s.post('/api/habits', {
       player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
@@ -575,9 +574,29 @@ test('/api/state expose gels_restants par joueur, décrémenté après usage', a
     await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: jourAGeler }));
 
     const apres = (await s.json('/api/state')).corps;
-    assert.equal(apres.players.find((p) => p.nom === 'Nicolas').gels_restants, 1);
-    // Les autres joueurs gardent leurs 2 gels intacts (quota indépendant).
-    assert.equal(apres.players.find((p) => p.nom === 'Axel').gels_restants, 2);
+    assert.equal(apres.players.find((p) => p.nom === 'Nicolas').gels_restants, 0);
+    // Les autres joueurs gardent leur gel intact (quota indépendant).
+    assert.equal(apres.players.find((p) => p.nom === 'Axel').gels_restants, 1);
+  } finally {
+    await s.fermer();
+  }
+});
+
+test('un gel posé depuis une habitude gèle aussi les autres quotidiennes ratées ce jour-là', async () => {
+  const s = await demarrer();
+  try {
+    for (const nom of ['Lecture', 'Sport']) {
+      await s.json('/api/habits', s.post('/api/habits', {
+        player_id: 1, nom, type: 'daily', couleur: '#4C6FFF', objectif: 1
+      }));
+    }
+    s.db.prepare('UPDATE habits SET created_at = ?').run(addDays(todayISO(), -2));
+    const hier = addDays(todayISO(), -1);
+    await s.json('/api/gels', s.post('/api/gels', { habit_id: 1, date_ref: hier }));
+
+    const { corps } = await s.json('/api/state');
+    const etats = corps.players[0].habits.map((h) => h.points.find((p) => p.ref === hier).etat);
+    assert.deepEqual(etats, ['gele', 'gele']);
   } finally {
     await s.fermer();
   }
@@ -937,7 +956,7 @@ test('POST /api/gels sur l\'habitude d\'un autre rend 403', async () => {
       s.post('/api/gels', { habit_id: 1, date_ref: addDays(todayISO(), -1), joueur: 'axel' }));
     assert.equal(statut, 403);
     const etat = (await s.json('/api/state')).corps;
-    assert.equal(etat.players[0].gels_restants, 2, 'aucun gel dépensé');
+    assert.equal(etat.players[0].gels_restants, 1, 'aucun gel dépensé');
   } finally { await s.fermer(); }
 });
 

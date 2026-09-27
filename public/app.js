@@ -332,8 +332,8 @@ function creerCard(joueur, misEnAvant = false) {
 
   const gels = document.createElement('span');
   gels.className = 'card-gels';
-  gels.textContent = `🧊 ${joueur.gels_restants}/2`;
-  gels.title = 'Gels de streak disponibles cette semaine';
+  gels.textContent = `🧊 ${joueur.gels_restants}/${joueur.gels_max}`;
+  gels.title = 'Journées gelables cette semaine';
 
   entete.append(titre, gels);
   card.appendChild(entete);
@@ -926,8 +926,9 @@ function menuSuppression(habit) {
 }
 
 // Menu au clic sur un point raté ou déjà gelé : proposer de corriger (marquer
-// fait) ou d'utiliser un gel pour protéger le streak sans compter le jour
-// comme réussi. Même mécanique que menuSuppression (popup réutilisé).
+// fait) ou de geler la journée entière, ce qui protège le streak de toutes
+// les quotidiennes du joueur ce jour-là sans compter le jour comme réussi.
+// Même mécanique que menuSuppression (popup réutilisé).
 // Si un historique était déjà ouvert (clic depuis le calendrier détaillé), on
 // y revient après l'action au lieu de fermer le popup — cohérent avec
 // rafraichirHistorique() qui existe précisément pour ce cas.
@@ -954,7 +955,7 @@ function menuJourRate(habitId, ref, dejaGele) {
   question.className = 'note';
   question.textContent = dejaGele
     ? 'Ce jour est déjà protégé par un gel.'
-    : 'Ce jour est raté — que faire ?';
+    : 'Ce jour est raté — que faire ? Un gel protège toutes tes quotidiennes ratées ce jour-là.';
 
   const actions = document.createElement('div');
   actions.className = 'menu-suppression';
@@ -974,7 +975,7 @@ function menuJourRate(habitId, ref, dejaGele) {
   if (!dejaGele) {
     const utiliserGel = document.createElement('button');
     utiliserGel.className = 'btn-discret';
-    utiliserGel.textContent = 'Utiliser un gel 🧊';
+    utiliserGel.textContent = 'Geler toute la journée 🧊';
     utiliserGel.addEventListener('click', async () => {
       try {
         await envoyer('/api/gels', { habit_id: habitId, date_ref: ref });

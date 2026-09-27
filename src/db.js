@@ -94,6 +94,20 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_gels_semaine ON gels (semaine);
+
+  -- Gel d'une JOURNÉE entière : protège toutes les quotidiennes du joueur ce
+  -- jour-là. Remplace le gel par habitude (table gels), qui n'est plus écrite
+  -- mais reste lue pour ne pas effacer l'historique déjà protégé.
+  CREATE TABLE IF NOT EXISTS gels_jours (
+    id         INTEGER PRIMARY KEY,
+    player_id  INTEGER NOT NULL REFERENCES players(id),
+    ref        TEXT NOT NULL,
+    semaine    TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (player_id, ref)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_gels_jours_semaine ON gels_jours (player_id, semaine);
 `;
 
 // Migration pour les bases créées avant l'ajout de la colonne `objectif` sur
@@ -322,19 +336,27 @@ export function getEntries(db, habitId) {
 
 // Toutes les refs gelées d'une habitude — même rôle que getEntries pour les
 // compteurs, consommé par pointsDe/reussitesPourStats/trahisonsDeLHabitude
-// (src/server.js) pour neutraliser un jour gelé partout.
+// (src/server.js) pour neutraliser un jour gelé partout. Deux sources : les
+// anciens gels posés sur cette habitude seule, et les journées gelées de son
+// joueur. Ces dernières ne valent que pour une quotidienne : la ref d'une
+// hebdo est un lundi, qu'une journée gelée tombant un lundi ne doit pas geler.
 export function getGels(db, habitId) {
-  const lignes = db.prepare('SELECT ref FROM gels WHERE habit_id = ?').all(habitId);
+  const lignes = db.prepare(
+    `SELECT ref FROM gels WHERE habit_id = ?
+     UNION
+     SELECT gj.ref FROM gels_jours gj JOIN habits h ON h.player_id = gj.player_id
+     WHERE h.id = ? AND h.type = 'daily'`
+  ).all(habitId, habitId);
   return new Set(lignes.map((l) => l.ref));
 }
 
-// Nombre de gels déjà posés par un joueur (toutes habitudes confondues) pour
-// une semaine donnée (lundi de la semaine, cf. mondayOf). Calculé à la volée,
-// jamais stocké — comme le streak.
+// Nombre de journées gelées par un joueur pour une semaine donnée (lundi de
+// la semaine où le gel a été POSÉ, cf. createGel). Les anciens gels par
+// habitude ne comptent pas : le quota est reparti de zéro avec les journées.
+// Calculé à la volée, jamais stocké — comme le streak.
 export function countGelsSemaine(db, playerId, semaine) {
   return db.prepare(
-    `SELECT COUNT(*) AS n FROM gels g JOIN habits h ON h.id = g.habit_id
-     WHERE h.player_id = ? AND g.semaine = ?`
+    'SELECT COUNT(*) AS n FROM gels_jours WHERE player_id = ? AND semaine = ?'
   ).get(playerId, semaine).n;
 }
 
@@ -377,12 +399,14 @@ export function toggle(db, habitId, dateRef) {
   return suivant;
 }
 
-// Une habitude ne peut être gelée qu'un jour PASSÉ et non réussi, dans la
-// même fenêtre que toggle() (depuis la création jusqu'à hier inclus — jamais
-// le jour en cours). Le quota (2 gels/semaine par joueur, toutes habitudes
-// confondues) est vérifié juste avant l'insertion, sur la semaine où le gel
-// est posé (aujourd'hui) — jamais sur la semaine du jour protégé.
-export const MAX_GELS_SEMAINE = 2;
+// Un gel protège une JOURNÉE entière du joueur : toutes ses quotidiennes non
+// réussies ce jour-là (cf. getGels). Il se pose depuis le point raté d'une
+// quotidienne, qui sert de garde : jour PASSÉ et non réussi, dans la même
+// fenêtre que toggle() (depuis la création jusqu'à hier inclus — jamais le
+// jour en cours). Le quota (1 journée/semaine par joueur) est vérifié juste
+// avant l'insertion, sur la semaine où le gel est posé (aujourd'hui) — jamais
+// sur la semaine du jour protégé.
+export const MAX_GELS_SEMAINE = 1;
 
 export function createGel(db, habitId, dateRef) {
   const habit = getHabit(db, habitId);
@@ -402,16 +426,20 @@ export function createGel(db, habitId, dateRef) {
   const objectifFige = entry?.objectif ?? habit.objectif;
   if (count >= objectifFige) throw new Error('Ce jour est déjà réussi, pas besoin de gel');
 
-  const dejaGele = db.prepare('SELECT 1 FROM gels WHERE habit_id = ? AND ref = ?').get(habitId, ref);
-  if (dejaGele) throw new Error('Ce jour est déjà protégé par un gel');
+  const dejaGele = db.prepare('SELECT 1 FROM gels_jours WHERE player_id = ? AND ref = ?')
+    .get(habit.player_id, ref);
+  if (dejaGele) throw new Error('Cette journée est déjà protégée par un gel');
 
   const semaine = mondayOf(todayISO());
   const utilises = countGelsSemaine(db, habit.player_id, semaine);
   if (utilises >= MAX_GELS_SEMAINE) throw new Error('Plus de gel disponible cette semaine');
 
   const { lastInsertRowid } = db.prepare(
-    'INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)'
-  ).run(habitId, ref, semaine, todayISO());
+    'INSERT INTO gels_jours (player_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)'
+  ).run(habit.player_id, ref, semaine, todayISO());
 
-  return { id: lastInsertRowid, habit_id: habitId, ref, gels_restants: MAX_GELS_SEMAINE - (utilises + 1) };
+  return {
+    id: lastInsertRowid, player_id: habit.player_id, ref,
+    gels_restants: MAX_GELS_SEMAINE - (utilises + 1)
+  };
 }

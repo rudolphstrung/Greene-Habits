@@ -155,6 +155,7 @@ function construireEtat(db) {
     nom: joueur.nom,
     couleur: joueur.couleur,
     slug: slugifier(joueur.nom),
+    gels_max: MAX_GELS_SEMAINE,
     gels_restants: Math.max(0, MAX_GELS_SEMAINE - countGelsSemaine(db, joueur.id, semaineCourante)),
     habits: habits
       .filter((h) => h.player_id === joueur.id)

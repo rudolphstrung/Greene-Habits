@@ -385,24 +385,28 @@ test('getGels rend les refs gelées d\'une habitude', () => {
   assert.deepEqual(getGels(db, habit.id), new Set([jour]));
 });
 
-test('countGelsSemaine compte les gels de toutes les habitudes du même joueur', () => {
+test('countGelsSemaine compte les journées gelées du joueur', () => {
+  const db = openDb(':memory:');
+  const semaine = mondayOf(todayISO());
+  db.prepare('INSERT INTO gels_jours (player_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(1, addDays(todayISO(), -1), semaine, todayISO());
+  assert.equal(countGelsSemaine(db, 1, semaine), 1);
+});
+
+test('countGelsSemaine ignore les anciens gels par habitude (quota reparti de zéro)', () => {
   const db = openDb(':memory:');
   const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
-  const h2 = createHabit(db, { player_id: 1, nom: 'Sport', type: 'daily', couleur: '#22C55E', objectif: 1 });
   const semaine = mondayOf(todayISO());
   db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
     .run(h1.id, addDays(todayISO(), -1), semaine, todayISO());
-  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
-    .run(h2.id, addDays(todayISO(), -2), semaine, todayISO());
-  assert.equal(countGelsSemaine(db, 1, semaine), 2);
+  assert.equal(countGelsSemaine(db, 1, semaine), 0);
 });
 
 test('countGelsSemaine ignore les gels d\'un autre joueur', () => {
   const db = openDb(':memory:');
-  const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
   const semaine = mondayOf(todayISO());
-  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
-    .run(h1.id, addDays(todayISO(), -1), semaine, todayISO());
+  db.prepare('INSERT INTO gels_jours (player_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(1, addDays(todayISO(), -1), semaine, todayISO());
   assert.equal(countGelsSemaine(db, 2, semaine), 0);
 });
 
@@ -432,9 +436,41 @@ test('createGel pose un gel sur un jour raté et retourne les gels restants', ()
   const hier = addDays(todayISO(), -1);
   const g = createGel(db, habit.id, hier);
   assert.equal(g.ref, hier);
-  assert.equal(g.habit_id, habit.id);
-  assert.equal(g.gels_restants, 1);
+  assert.equal(g.player_id, habit.player_id);
+  assert.equal(g.gels_restants, 0);
   assert.deepEqual(getGels(db, habit.id), new Set([hier]));
+});
+
+test('un gel protège toute la journée : toutes les quotidiennes du joueur', () => {
+  const db = openDb(':memory:');
+  const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const h2 = createHabit(db, { player_id: 1, nom: 'Sport', type: 'daily', couleur: '#22C55E', objectif: 1 });
+  const autre = createHabit(db, { player_id: 2, nom: 'Yoga', type: 'daily', couleur: '#A855F7', objectif: 1 });
+  db.prepare('UPDATE habits SET created_at = ?').run(addDays(todayISO(), -5));
+  const hier = addDays(todayISO(), -1);
+  createGel(db, h1.id, hier);
+  assert.deepEqual(getGels(db, h2.id), new Set([hier]));
+  assert.deepEqual(getGels(db, autre.id), new Set(), 'un autre joueur n\'est pas gelé');
+});
+
+test('une journée gelée ne gèle jamais une hebdo, même un lundi', () => {
+  const db = openDb(':memory:');
+  const quotidienne = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const hebdo = createHabit(db, { player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#22C55E', objectif: 2 });
+  const lundiPasse = addDays(mondayOf(todayISO()), -7);
+  db.prepare('UPDATE habits SET created_at = ?').run(addDays(lundiPasse, -7));
+  createGel(db, quotidienne.id, lundiPasse);
+  assert.deepEqual(getGels(db, hebdo.id), new Set());
+});
+
+test('les anciens gels par habitude restent lus', () => {
+  const { db, habit } = baseAvecHabitude();
+  const jour = addDays(todayISO(), -3);
+  db.prepare('INSERT INTO gels (habit_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(habit.id, jour, mondayOf(jour), todayISO());
+  db.prepare('INSERT INTO gels_jours (player_id, ref, semaine, created_at) VALUES (?, ?, ?, ?)')
+    .run(habit.player_id, addDays(todayISO(), -1), mondayOf(todayISO()), todayISO());
+  assert.deepEqual(getGels(db, habit.id), new Set([jour, addDays(todayISO(), -1)]));
 });
 
 test('createGel refuse une habitude weekly', () => {
@@ -462,35 +498,23 @@ test('createGel refuse un jour déjà réussi', () => {
   assert.throws(() => createGel(db, habit.id, hier), /déjà réussi/i);
 });
 
-test('createGel refuse de geler deux fois le même jour', () => {
-  const { db, habit } = baseAvecHabitude();
-  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(todayISO(), -5), habit.id);
-  const hier = addDays(todayISO(), -1);
-  createGel(db, habit.id, hier);
-  assert.throws(() => createGel(db, habit.id, hier), /déjà protégé/i);
-});
-
-test('createGel refuse au-delà du quota de 2 gels par semaine', () => {
-  const db = openDb(':memory:');
-  const habit = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
-  const semaine = mondayOf(todayISO());
-  const sem_passee = addDays(semaine, -7);
-  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(sem_passee, -7), habit.id);
-  createGel(db, habit.id, addDays(sem_passee, 0));
-  createGel(db, habit.id, addDays(sem_passee, 1));
-  assert.throws(() => createGel(db, habit.id, addDays(sem_passee, 2)), /gel disponible/i);
-});
-
-test('le quota de gels est partagé entre toutes les habitudes du même joueur', () => {
+test('createGel refuse de geler deux fois la même journée, même depuis une autre habitude', () => {
   const db = openDb(':memory:');
   const h1 = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
   const h2 = createHabit(db, { player_id: 1, nom: 'Sport', type: 'daily', couleur: '#22C55E', objectif: 1 });
-  const semaine = mondayOf(todayISO());
-  const sem_passee = addDays(semaine, -7);
-  db.prepare('UPDATE habits SET created_at = ?').run(addDays(sem_passee, -7));
-  createGel(db, h1.id, addDays(sem_passee, 0));
-  createGel(db, h2.id, addDays(sem_passee, 1));
-  assert.throws(() => createGel(db, h1.id, addDays(sem_passee, 2)), /gel disponible/i);
+  db.prepare('UPDATE habits SET created_at = ?').run(addDays(todayISO(), -5));
+  const hier = addDays(todayISO(), -1);
+  createGel(db, h1.id, hier);
+  assert.throws(() => createGel(db, h2.id, hier), /déjà protégée/i);
+});
+
+test('createGel refuse au-delà du quota de 1 journée par semaine', () => {
+  const db = openDb(':memory:');
+  const habit = createHabit(db, { player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1 });
+  const sem_passee = addDays(mondayOf(todayISO()), -7);
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(sem_passee, -7), habit.id);
+  createGel(db, habit.id, addDays(sem_passee, 0));
+  assert.throws(() => createGel(db, habit.id, addDays(sem_passee, 1)), /gel disponible/i);
 });
 
 test('le quota de gels est indépendant entre deux joueurs différents', () => {
@@ -499,7 +523,6 @@ test('le quota de gels est indépendant entre deux joueurs différents', () => {
   const h2 = createHabit(db, { player_id: 2, nom: 'Sport', type: 'daily', couleur: '#22C55E', objectif: 1 });
   db.prepare('UPDATE habits SET created_at = ?').run(addDays(todayISO(), -5));
   createGel(db, h1.id, addDays(todayISO(), -1));
-  createGel(db, h1.id, addDays(todayISO(), -2));
   const g = createGel(db, h2.id, addDays(todayISO(), -1));
-  assert.equal(g.gels_restants, 1);
+  assert.equal(g.gels_restants, 0);
 });
