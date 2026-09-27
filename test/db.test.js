@@ -526,3 +526,32 @@ test('le quota de gels est indépendant entre deux joueurs différents', () => {
   const g = createGel(db, h2.id, addDays(todayISO(), -1));
   assert.equal(g.gels_restants, 0);
 });
+
+// --- Correctifs de la chasse aux bugs du 2026-09-27 -----------------------
+
+test('ré-archiver une habitude ne déplace pas sa date d\'archivage', () => {
+  const { db, habit } = baseAvecHabitude();
+  db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = ?').run('2026-09-05', habit.id);
+  archiveHabit(db, habit.id);
+  assert.equal(getHabit(db, habit.id).archived_at, '2026-09-05');
+});
+
+test('toggle et createGel refusent une habitude archivée', () => {
+  const { db, habit } = baseAvecHabitude();
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(todayISO(), -5), habit.id);
+  archiveHabit(db, habit.id);
+  assert.throws(() => toggle(db, habit.id, addDays(todayISO(), -1)), /archivée/i);
+  assert.throws(() => createGel(db, habit.id, addDays(todayISO(), -1)), /archivée/i);
+  assert.equal(countGelsSemaine(db, habit.player_id, mondayOf(todayISO())), 0, 'aucun gel consommé');
+});
+
+test('toggle et createGel refusent une date mal formée', () => {
+  const { db, habit } = baseAvecHabitude();
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(todayISO(), -5), habit.id);
+  const hier = addDays(todayISO(), -1);
+  for (const mauvaise of [`${hier}abc`, hier.slice(0, 8) + '2', 20260915, '2026-02-30', null]) {
+    assert.throws(() => toggle(db, habit.id, mauvaise), /date invalide/i, String(mauvaise));
+    assert.throws(() => createGel(db, habit.id, mauvaise), /date invalide/i, String(mauvaise));
+  }
+  assert.equal(countGelsSemaine(db, habit.player_id, mondayOf(todayISO())), 0, 'aucun gel consommé');
+});

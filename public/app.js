@@ -42,9 +42,50 @@ function signaler(message) {
   setTimeout(() => toast.classList.add('cache'), 2600);
 }
 
+// Jour local au moment du dernier chargement de l'état (cf. pageDateDHier).
+let jourDuChargement = null;
+
 export async function recharger() {
   etat = await api('/api/state');
+  jourDuChargement = jourCourant();
   rendre();
+}
+
+// Le jour en cours vu de Suisse, calculé comme le serveur (todayISO). S'il a
+// changé depuis le dernier chargement, la page affichée date d'avant minuit :
+// ses refs « en cours » pointent sur la veille. On compare l'horloge locale
+// à elle-même, jamais à etat.today : un téléphone mal réglé bloquerait sinon
+// toute validation.
+function jourCourant() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Zurich' });
+}
+
+function pageDateDHier() {
+  return jourDuChargement !== null && jourCourant() !== jourDuChargement;
+}
+
+// Onglet resté ouvert pendant la nuit : on remet la page à jour dès qu'on y
+// revient, avant tout clic.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && pageDateDHier()) {
+    recharger().catch((err) => signaler(err.message));
+  }
+});
+
+// Désactive les boutons de `zone` (un bouton, ou tous ceux d'un conteneur)
+// le temps d'une action asynchrone. Un double tap enverrait sinon deux fois
+// la même requête — et deux bascules s'annulent l'une l'autre.
+function unSeulEnvoi(zone, action) {
+  return async (...args) => {
+    const boutons = zone.tagName === 'BUTTON' ? [zone] : [...zone.querySelectorAll('button')];
+    if (boutons.some((b) => b.disabled)) return;
+    boutons.forEach((b) => { b.disabled = true; });
+    try {
+      await action(...args);
+    } finally {
+      boutons.forEach((b) => { b.disabled = false; });
+    }
+  };
 }
 
 // --- Validation de la période en cours (bouton à droite) ------------------
@@ -144,16 +185,36 @@ function celebrerJournee(joueur) {
 // avant de commencer. Cela évite que deux appels ne capturent le même
 // état pré-mutation et ne déclenchent la célébration deux fois.
 let filesAttenteValidation = Promise.resolve();
+// Habitudes dont une validation est en route : un 2e tap pendant ce temps est
+// ignoré, sinon la 2e bascule annulerait la 1re (double tap sur mobile).
+const validationsEnCours = new Set();
 
 async function validerPeriode(habit, ref) {
-  const tache = filesAttenteValidation.then(() => executerValidation(habit, ref));
+  if (validationsEnCours.has(habit.id)) return;
+  if (pageDateDHier()) {
+    // Après minuit, `ref` est la veille : valider maintenant cocherait le
+    // mauvais jour. On remet la page à jour et on laisse recliquer.
+    await recharger().catch((err) => signaler(err.message));
+    signaler('Nouveau jour : la page a été mise à jour, revalide.');
+    return;
+  }
+  validationsEnCours.add(habit.id);
+  const tache = filesAttenteValidation.then(() => executerValidation(habit.id, ref));
   filesAttenteValidation = tache.catch(() => {}); // une erreur ne bloque pas la file
-  return tache;
+  try {
+    return await tache;
+  } finally {
+    validationsEnCours.delete(habit.id);
+  }
 }
 
-async function executerValidation(habit, ref) {
+async function executerValidation(habitId, ref) {
+  // État relu au moment où arrive notre tour dans la file, pas au clic : une
+  // validation précédente a pu le changer entre-temps.
+  const joueurAvant = etat.players.find((p) => p.habits.some((h) => h.id === habitId));
+  if (!joueurAvant) return; // habitude supprimée ou archivée entre-temps
+  const habit = joueurAvant.habits.find((h) => h.id === habitId);
   const avant = habit.courant;
-  const joueurAvant = etat.players.find((p) => p.habits.some((h) => h.id === habit.id));
   const completAvant = toutesDailyComplete(joueurAvant);
   try {
     const { count } = await envoyer('/api/toggle', { habit_id: habit.id, date_ref: ref });
@@ -565,8 +626,7 @@ function formulaireHabitude(card, playerId, declencheur) {
     intentionNote.conteneur, intentionMomentLieu.conteneur, intentionIdentite.conteneur,
     couleur.zone, boutons
   );
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
+  const creer = unSeulEnvoi(valider, async () => {
     try {
       await envoyer('/api/habits', {
         player_id: playerId,
@@ -583,6 +643,7 @@ function formulaireHabitude(card, playerId, declencheur) {
       signaler(err.message);
     }
   });
+  form.addEventListener('submit', (e) => { e.preventDefault(); creer(); });
 
   card.querySelector('.card-actions').before(form);
   nom.focus();
@@ -615,15 +676,23 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // Cases passées réussies : simple correction (bascule + rechargement).
+  // Cases passées réussies : simple correction (bascule + rechargement). Un
+  // 2e clic sur la même case avant la fin de la 1re bascule est ignoré.
+  const cle = `${habitId}|${ref}`;
+  if (basculesEnCours.has(cle)) return;
+  basculesEnCours.add(cle);
   try {
     await envoyer('/api/toggle', { habit_id: habitId, date_ref: ref });
     await recharger();
-    if (window.rafraichirHistorique) window.rafraichirHistorique();
+    if (window.rafraichirHistorique) await window.rafraichirHistorique();
   } catch (err) {
     signaler(err.message);
+  } finally {
+    basculesEnCours.delete(cle);
   }
 });
+
+const basculesEnCours = new Set();
 
 document.getElementById('btn-joueur').addEventListener('click', async () => {
   const nom = prompt('Prénom du joueur ?');
@@ -741,7 +810,8 @@ function rendreHistorique(donnees) {
 
     const grille = document.createElement('div');
     grille.className = 'mois-points';
-    points.forEach((p) => grille.appendChild(creerPoint(donnees, p, actionnable)));
+    // Une habitude archivée ne se coche plus (le serveur refuse) : cases inertes.
+    points.forEach((p) => grille.appendChild(creerPoint(donnees, p, actionnable && !donnees.archived_at)));
 
     mois.append(nom, grille);
     popupContenu.appendChild(mois);
@@ -766,7 +836,7 @@ function rendreHistorique(donnees) {
     const archiver = document.createElement('button');
     archiver.className = 'btn-discret';
     archiver.textContent = 'Archiver';
-    archiver.addEventListener('click', async () => {
+    archiver.addEventListener('click', unSeulEnvoi(actions, async () => {
       if (!confirm(`Archiver « ${donnees.nom} » ? L'historique est conservé.`)) return;
       try {
         await envoyer(`/api/habits/${donnees.id}/archive`, {});
@@ -775,7 +845,7 @@ function rendreHistorique(donnees) {
       } catch (err) {
         signaler(err.message);
       }
-    });
+    }));
     actions.appendChild(archiver);
   }
 
@@ -784,7 +854,7 @@ function rendreHistorique(donnees) {
   const supprimer = document.createElement('button');
   supprimer.className = 'btn-danger';
   supprimer.textContent = 'Supprimer définitivement';
-  supprimer.addEventListener('click', async () => {
+  supprimer.addEventListener('click', unSeulEnvoi(actions, async () => {
     if (!confirm(`Supprimer DÉFINITIVEMENT « ${donnees.nom} » ? Tout son historique sera perdu — irréversible.`)) return;
     try {
       await envoyer(`/api/habits/${donnees.id}/delete`, {});
@@ -798,7 +868,7 @@ function rendreHistorique(donnees) {
     } catch (err) {
       signaler(err.message);
     }
-  });
+  }));
   actions.appendChild(supprimer);
 
   popupContenu.appendChild(actions);
@@ -843,8 +913,7 @@ function formulaireEdition(donnees) {
     intentionNote.conteneur, intentionMomentLieu.conteneur, intentionIdentite.conteneur,
     boutons
   );
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
+  const enregistrer = unSeulEnvoi(valider, async () => {
     try {
       // Le type n'est volontairement pas envoyé : il est immuable.
       await envoyer(`/api/habits/${donnees.id}`, {
@@ -861,12 +930,26 @@ function formulaireEdition(donnees) {
       signaler(err.message);
     }
   });
+  form.addEventListener('submit', (e) => { e.preventDefault(); enregistrer(); });
 
   popupContenu.appendChild(form);
   nom.focus();
 }
 
+// Chaque changement de contenu du popup prend un nouveau jeton. Une réponse
+// réseau qui arrive après coup compare son jeton au courant : s'il a changé,
+// l'utilisateur a fermé ou ouvert autre chose entre-temps, et elle ne doit
+// plus rien afficher (sinon un historique lent écrase le profil ouvert après).
+let jetonPopup = 0;
+let vuePopup = null; // 'historique' | 'profil' | 'menu' | null
+
+function nouvelleVuePopup(vue) {
+  vuePopup = vue;
+  return ++jetonPopup;
+}
+
 function fermerPopup() {
+  nouvelleVuePopup(null);
   popup.classList.add('cache');
   habitOuverte = null;
   profilOuvert = null;
@@ -876,6 +959,7 @@ function fermerPopup() {
 // Menu au clic sur la croix : archiver (garde l'historique dans le profil) OU
 // supprimer définitivement (efface l'habitude et tout son historique).
 function menuSuppression(habit) {
+  nouvelleVuePopup('menu');
   popupContenu.textContent = '';
   origineHistorique = null;
   habitOuverte = null;
@@ -896,25 +980,25 @@ function menuSuppression(habit) {
   const archiver = document.createElement('button');
   archiver.className = 'btn-principal';
   archiver.textContent = 'Archiver (garder dans le profil)';
-  archiver.addEventListener('click', async () => {
+  archiver.addEventListener('click', unSeulEnvoi(actions, async () => {
     try {
       await envoyer(`/api/habits/${habit.id}/archive`, {});
       fermerPopup();
       await recharger();
     } catch (err) { signaler(err.message); }
-  });
+  }));
 
   const supprimer = document.createElement('button');
   supprimer.className = 'btn-danger';
   supprimer.textContent = 'Supprimer définitivement';
-  supprimer.addEventListener('click', async () => {
+  supprimer.addEventListener('click', unSeulEnvoi(actions, async () => {
     if (!confirm(`Supprimer DÉFINITIVEMENT « ${habit.nom} » ? Tout son historique sera perdu — c'est irréversible.`)) return;
     try {
       await envoyer(`/api/habits/${habit.id}/delete`, {});
       fermerPopup();
       await recharger();
     } catch (err) { signaler(err.message); }
-  });
+  }));
 
   const annuler = document.createElement('button');
   annuler.className = 'btn-discret';
@@ -944,8 +1028,13 @@ function menuJourRate(habitId, ref, dejaGele) {
     }
   };
 
+  nouvelleVuePopup('menu');
   popupContenu.textContent = '';
   popup.classList.remove('cache');
+
+  // Plus aucun gel cette semaine : on ne propose pas un bouton voué au refus.
+  const joueur = etat && etat.players.find((p) => p.habits.some((h) => h.id === habitId));
+  const gelDisponible = !joueur || joueur.gels_restants > 0;
 
   const titre = document.createElement('h2');
   titre.textContent = ref;
@@ -955,7 +1044,9 @@ function menuJourRate(habitId, ref, dejaGele) {
   question.className = 'note';
   question.textContent = dejaGele
     ? 'Ce jour est déjà protégé par un gel.'
-    : 'Ce jour est raté — que faire ? Un gel protège toutes tes quotidiennes ratées ce jour-là.';
+    : gelDisponible
+      ? 'Ce jour est raté — que faire ? Un gel protège toutes tes quotidiennes ratées ce jour-là.'
+      : 'Ce jour est raté. Plus de gel disponible cette semaine.';
 
   const actions = document.createElement('div');
   actions.className = 'menu-suppression';
@@ -963,26 +1054,26 @@ function menuJourRate(habitId, ref, dejaGele) {
   const marquerFait = document.createElement('button');
   marquerFait.className = 'btn-principal';
   marquerFait.textContent = 'Marquer fait';
-  marquerFait.addEventListener('click', async () => {
+  marquerFait.addEventListener('click', unSeulEnvoi(actions, async () => {
     try {
       await envoyer('/api/toggle', { habit_id: habitId, date_ref: ref });
       await recharger();
       await retourOuFermer();
     } catch (err) { signaler(err.message); }
-  });
+  }));
   actions.appendChild(marquerFait);
 
-  if (!dejaGele) {
+  if (!dejaGele && gelDisponible) {
     const utiliserGel = document.createElement('button');
     utiliserGel.className = 'btn-discret';
     utiliserGel.textContent = 'Geler toute la journée 🧊';
-    utiliserGel.addEventListener('click', async () => {
+    utiliserGel.addEventListener('click', unSeulEnvoi(actions, async () => {
       try {
         await envoyer('/api/gels', { habit_id: habitId, date_ref: ref });
         await recharger();
         await retourOuFermer();
       } catch (err) { signaler(err.message); }
-    });
+    }));
     actions.appendChild(utiliserGel);
   }
 
@@ -996,21 +1087,28 @@ function menuJourRate(habitId, ref, dejaGele) {
 }
 
 window.ouvrirHistorique = async (habitId, origine = null) => {
+  const jeton = nouvelleVuePopup('historique');
   habitOuverte = habitId;
   origineHistorique = origine;
   popup.classList.remove('cache');
   popupContenu.textContent = 'Chargement…';
   try {
-    rendreHistorique(await api(`/api/history?habit_id=${habitId}`));
+    const donnees = await api(`/api/history?habit_id=${habitId}`);
+    if (jeton === jetonPopup) rendreHistorique(donnees);
   } catch (err) {
+    if (jeton !== jetonPopup) return;
     signaler(err.message);
     fermerPopup();
   }
 };
 
+// Ne redessine que si le popup montre encore un historique : un menu ouvert
+// par-dessus (jour raté, suppression) ne doit pas être écrasé.
 window.rafraichirHistorique = async () => {
-  if (habitOuverte === null) return;
-  rendreHistorique(await api(`/api/history?habit_id=${habitOuverte}`));
+  if (habitOuverte === null || vuePopup !== 'historique') return;
+  const jeton = jetonPopup;
+  const donnees = await api(`/api/history?habit_id=${habitOuverte}`);
+  if (jeton === jetonPopup) rendreHistorique(donnees);
 };
 
 // --- Popup de profil joueur -------------------------------------------------
@@ -1087,14 +1185,17 @@ function rendreProfil(donnees) {
 }
 
 window.ouvrirProfil = async (playerId) => {
+  const jeton = nouvelleVuePopup('profil');
   profilOuvert = playerId;
   habitOuverte = null;
   origineHistorique = null;
   popup.classList.remove('cache');
   popupContenu.textContent = 'Chargement…';
   try {
-    rendreProfil(await api(`/api/profile?player_id=${playerId}`));
+    const donnees = await api(`/api/profile?player_id=${playerId}`);
+    if (jeton === jetonPopup) rendreProfil(donnees);
   } catch (err) {
+    if (jeton !== jetonPopup) return;
     signaler(err.message);
     fermerPopup();
   }

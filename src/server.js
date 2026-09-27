@@ -190,8 +190,13 @@ function construireEtat(db) {
 // Statistiques d'une habitude, réutilisées à la fois par l'historique détaillé
 // (avec les points) et par le profil joueur (sans les points).
 function statsHabit(habit, entries, aujourdhui, gels) {
-  const refs = toutesLesRefs(habit, aujourdhui);
-  const refCourante = refFor(habit, aujourdhui);
+  // Une habitude archivée s'arrête à sa date d'archivage : les jours d'après
+  // n'existent pas pour elle, sinon son taux et son streak baisseraient chaque
+  // jour. Sa période d'archivage joue le rôle de période « en cours » :
+  // partielle, jamais comptée comme un échec.
+  const fin = habit.archived_at && habit.archived_at < aujourdhui ? habit.archived_at : aujourdhui;
+  const refs = toutesLesRefs(habit, fin);
+  const refCourante = refFor(habit, fin);
   const reussites = reussitesPourStats(habit, entries, refs, refCourante, gels);
 
   return {
@@ -333,7 +338,15 @@ const REFUS = {
 
 export function createServer(db) {
   return http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://localhost');
+    // Hors du try principal mais protégé : une URL comme `//` fait lever
+    // new URL(), et une exception non rattrapée ici arrêterait tout le process.
+    let url;
+    try {
+      url = new URL(req.url, 'http://localhost');
+    } catch {
+      res.writeHead(400).end('Bad request');
+      return;
+    }
     const chemin = url.pathname;
 
     if (!chemin.startsWith('/api/')) {

@@ -1038,3 +1038,40 @@ test('history et profil exposent player_id (le front en déduit qui peut agir)',
     assert.equal(profil.actives[0].player_id, 1);
   } finally { await s.fermer(); }
 });
+
+// --- Correctifs de la chasse aux bugs du 2026-09-27 -----------------------
+
+test('une URL `//` rend 400 sans faire tomber le serveur', async () => {
+  const s = await demarrer();
+  try {
+    const http = await import('node:http');
+    const { port } = new URL(s.base);
+    const statut = await new Promise((resoudre, rejeter) => {
+      http.get({ host: '127.0.0.1', port, path: '//' }, (rep) => { rep.resume(); resoudre(rep.statusCode); })
+        .on('error', rejeter);
+    });
+    assert.equal(statut, 400);
+    const { statut: apres } = await s.json('/api/state');
+    assert.equal(apres, 200, 'le serveur répond toujours');
+  } finally { await s.fermer(); }
+});
+
+test('le taux et le streak d\'une habitude archivée restent figés après l\'archivage', async () => {
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Lecture', type: 'daily', couleur: '#4C6FFF', objectif: 1
+    }));
+    const debut = addDays(todayISO(), -20);
+    s.db.prepare('UPDATE habits SET created_at = ?, archived = 1, archived_at = ? WHERE id = 1')
+      .run(debut, addDays(debut, 4));
+    for (let i = 0; i < 4; i++) {
+      s.db.prepare('INSERT INTO entries (habit_id, date_ref, count, objectif) VALUES (1, ?, 1, 1)')
+        .run(addDays(debut, i));
+    }
+    const { corps } = await s.json('/api/profile?player_id=1');
+    const archivee = corps.archivees[0];
+    assert.equal(archivee.taux, 100);
+    assert.equal(archivee.streak, 4);
+  } finally { await s.fermer(); }
+});

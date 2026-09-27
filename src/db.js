@@ -305,10 +305,27 @@ export function updateHabit(db, id, { nom, couleur, objectif, note, moment_lieu,
   return getHabit(db, id);
 }
 
+// Idempotent : ré-archiver ne touche pas archived_at, sinon la date qui fige
+// le décompte des trahisons avancerait à chaque appel.
 export function archiveHabit(db, id) {
-  const info = db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = ?')
-    .run(todayISO(), id);
-  if (info.changes === 0) throw new Error('Habitude introuvable');
+  const habit = getHabit(db, id);
+  if (!habit) throw new Error('Habitude introuvable');
+  if (habit.archived) return;
+  db.prepare('UPDATE habits SET archived = 1, archived_at = ? WHERE id = ?').run(todayISO(), id);
+}
+
+// Une date_ref venue du client : 'YYYY-MM-DD' strict et date réelle. Les
+// fenêtres de toggle/createGel comparent des chaînes, donc '2026-09-15abc'
+// passerait sans ce contrôle et serait stocké tel quel.
+function dateValide(dateRef) {
+  if (typeof dateRef !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateRef)) {
+    throw new Error('Date invalide');
+  }
+  const d = new Date(`${dateRef}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== dateRef) {
+    throw new Error('Date invalide');
+  }
+  return dateRef;
 }
 
 // Suppression DÉFINITIVE : efface l'habitude ET tout son historique (entries).
@@ -367,8 +384,9 @@ export function refFor(habit, dateISO) {
 export function toggle(db, habitId, dateRef) {
   const habit = getHabit(db, habitId);
   if (!habit) throw new Error('Habitude introuvable');
+  if (habit.archived) throw new Error('Cette habitude est archivée');
 
-  const ref = refFor(habit, dateRef);
+  const ref = refFor(habit, dateValide(dateRef));
   const debut = refFor(habit, habit.created_at);
   const courante = refFor(habit, todayISO());
   if (ref < debut || ref > courante) {
@@ -411,9 +429,10 @@ export const MAX_GELS_SEMAINE = 1;
 export function createGel(db, habitId, dateRef) {
   const habit = getHabit(db, habitId);
   if (!habit) throw new Error('Habitude introuvable');
+  if (habit.archived) throw new Error('Cette habitude est archivée');
   if (habit.type !== 'daily') throw new Error('Le gel ne s\'applique qu\'aux habitudes quotidiennes');
 
-  const ref = dateRef;
+  const ref = dateValide(dateRef);
   const debut = refFor(habit, habit.created_at);
   const courante = refFor(habit, todayISO());
   if (ref < debut || ref >= courante) {
