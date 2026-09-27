@@ -1075,3 +1075,31 @@ test('le taux et le streak d\'une habitude archivée restent figés après l\'ar
     assert.equal(archivee.streak, 4);
   } finally { await s.fermer(); }
 });
+
+test('une hebdo ratée sur une semaine à cheval sur 2 mois compte dans le mois de son dimanche', async () => {
+  process.env.GREENE_TODAY = '2026-09-08';
+  const s = await demarrer();
+  try {
+    await s.json('/api/habits', s.post('/api/habits', {
+      player_id: 1, nom: 'Sport', type: 'weekly', couleur: '#4C6FFF', objectif: 2
+    }));
+    // Créée en août, jamais faite. La semaine du lundi 31/08 au dimanche 06/09
+    // est la seule semaine passée qui finit en septembre.
+    s.db.prepare('UPDATE habits SET created_at = ? WHERE id = 1').run('2026-08-03');
+    const { corps } = await s.json('/api/profile?player_id=1');
+    assert.equal(corps.actives[0].trahisonsMois, 1);
+  } finally {
+    await s.fermer();
+    delete process.env.GREENE_TODAY;
+  }
+});
+
+test('POST /api/players refuse un prénom déjà pris ou sans lettre ni chiffre', async () => {
+  const s = await demarrer();
+  try {
+    const doublon = await s.json('/api/players', s.post('/api/players', { nom: 'anatole!' }));
+    assert.equal(doublon.statut, 400);
+    const vide = await s.json('/api/players', s.post('/api/players', { nom: '日本' }));
+    assert.equal(vide.statut, 400);
+  } finally { await s.fermer(); }
+});

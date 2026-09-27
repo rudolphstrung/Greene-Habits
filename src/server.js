@@ -8,7 +8,7 @@ import {
   getGels, countGelsSemaine, refFor, slugifier, MAX_GELS_SEMAINE
 } from './db.js';
 import {
-  todayISO, mondayOf, currentWeekDays, lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
+  todayISO, mondayOf, addDays, currentWeekDays, lastWeeks, allDaysSince, allWeeksSince, firstOfMonth
 } from './dates.js';
 import { dotState, computeStreak, successRate, bestStreak } from './state.js';
 
@@ -115,7 +115,12 @@ function trahisonsDeLHabitude(habit, entries, aujourdhui, gels) {
   const refFin = habit.archived_at ? refFor(habit, habit.archived_at) : refCourante;
 
   return toutesLesRefs(habit, aujourdhui).filter((ref) => {
-    if (ref < debutMois) return false;      // hors du mois en cours
+    // Une semaine appartient au mois de son DIMANCHE : celle du lundi 31/08
+    // au dimanche 06/09 compte en septembre. Jugée sur son lundi, elle serait
+    // encore en cours pendant tout août puis hors du mois dès septembre —
+    // jamais comptée.
+    const finPeriode = habit.type === 'weekly' ? addDays(ref, 6) : ref;
+    if (finPeriode < debutMois) return false; // hors du mois en cours
     if (ref >= refCourante) return false;   // période en cours ou future
     // La période d'archivage est partielle au même titre que celle de création :
     // l'habitude a été arrêtée en cours de route, on ne la juge pas dessus.

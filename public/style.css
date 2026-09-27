@@ -738,6 +738,16 @@ main {
   gap: 6px;
 }
 .mois-points .point { width: var(--cible-min); height: var(--cible-min); max-width: none; }
+.mois-jour {
+  font-size: var(--t-caption2);
+  line-height: var(--l-caption2);
+  color: var(--doux);
+  text-align: center;
+}
+
+/* La boîte reçoit le focus à l'ouverture (clavier) : pas d'anneau sur la
+   boîte entière, les contrôles gardent le leur. */
+.popup-boite:focus { outline: none; }
 
 /* --- Classement ----------------------------------------------------------
    Liste groupée : rangées séparées par des filets fins, pas des pilules. */

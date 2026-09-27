@@ -233,6 +233,14 @@ function nomValide(nom) {
 
 export function createPlayer(db, nom, couleur) {
   const propre = nomValide(nom);
+  // Le slug est l'identité du joueur (URL `/<slug>`, verrou d'appartenance) :
+  // vide ou déjà pris, le nouveau joueur ne pourrait jamais agir sur sa carte.
+  const slug = slugifier(propre);
+  if (!slug) throw new Error('Le prénom doit contenir au moins une lettre ou un chiffre');
+  const tous = db.prepare('SELECT nom FROM players').all();
+  if (tous.some((j) => slugifier(j.nom) === slug)) {
+    throw new Error('Un joueur porte déjà ce prénom');
+  }
   // Sans couleur explicite, on attribue la suivante en tournant sur
   // COULEURS_JOUEURS selon le nombre de joueurs déjà présents (archivés
   // compris, pour ne jamais réattribuer une couleur déjà prise en boucle
@@ -393,13 +401,18 @@ export function toggle(db, habitId, dateRef) {
     throw new Error('Date hors de la fenêtre autorisée');
   }
 
-  const actuel = db.prepare(
-    'SELECT count FROM entries WHERE habit_id = ? AND date_ref = ?'
-  ).get(habitId, ref)?.count || 0;
+  const entry = db.prepare(
+    'SELECT count, objectif FROM entries WHERE habit_id = ? AND date_ref = ?'
+  ).get(habitId, ref);
+  const actuel = entry?.count || 0;
+  // Une période passée garde l'objectif figé sur son entry : la corriger ne
+  // doit pas la rejuger avec l'objectif actuel. La période en cours et une
+  // période passée encore vide suivent l'objectif actuel.
+  const cible = ref !== courante && entry ? entry.objectif ?? habit.objectif : habit.objectif;
 
   // Un clic de plus au-delà de l'objectif remet à zéro : toute erreur se
   // répare avec le même geste, sans menu de correction.
-  const suivant = actuel + 1 > habit.objectif ? 0 : actuel + 1;
+  const suivant = actuel + 1 > cible ? 0 : actuel + 1;
 
   if (suivant === 0) {
     // Une entry n'existe que si count > 0 : l'absence vaut zéro.
@@ -412,7 +425,7 @@ export function toggle(db, habitId, dateRef) {
     db.prepare(
       `INSERT INTO entries (habit_id, date_ref, count, objectif) VALUES (?, ?, ?, ?)
        ON CONFLICT (habit_id, date_ref) DO UPDATE SET count = excluded.count, objectif = excluded.objectif`
-    ).run(habitId, ref, suivant, habit.objectif);
+    ).run(habitId, ref, suivant, cible);
   }
   return suivant;
 }

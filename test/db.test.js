@@ -555,3 +555,15 @@ test('toggle et createGel refusent une date mal formée', () => {
   }
   assert.equal(countGelsSemaine(db, habit.player_id, mondayOf(todayISO())), 0, 'aucun gel consommé');
 });
+
+test('corriger une semaine passée garde l\'objectif figé sur son entry', () => {
+  const { db, habit } = baseAvecHabitude({ type: 'weekly', objectif: 5 });
+  const semainePassee = addDays(mondayOf(todayISO()), -7);
+  db.prepare('UPDATE habits SET created_at = ? WHERE id = ?').run(addDays(semainePassee, -14), habit.id);
+  db.prepare('INSERT INTO entries (habit_id, date_ref, count, objectif) VALUES (?, ?, 4, 5)')
+    .run(habit.id, semainePassee);
+  updateHabit(db, habit.id, { nom: 'Lecture', couleur: '#4C6FFF', objectif: 2 });
+  // Jugée sur 5 (figé), pas sur 2 : 4 passe à 5, pas à 0.
+  assert.equal(toggle(db, habit.id, semainePassee), 5);
+  assert.equal(getEntries(db, habit.id)[semainePassee].objectif, 5);
+});

@@ -35,11 +35,15 @@ function peutAgir(playerId) {
   return playerId != null && playerId === idJoueurCible();
 }
 
+// Un nouveau message relance le minuteur : sinon celui du message précédent
+// ferait disparaître le nouveau avant ses 2,6 s.
+let minuteurToast = null;
 function signaler(message) {
   const toast = document.getElementById('toast');
   toast.textContent = message;
   toast.classList.remove('cache');
-  setTimeout(() => toast.classList.add('cache'), 2600);
+  clearTimeout(minuteurToast);
+  minuteurToast = setTimeout(() => toast.classList.add('cache'), 2600);
 }
 
 // Jour local au moment du dernier chargement de l'état (cf. pageDateDHier).
@@ -258,8 +262,8 @@ function creerPoint(habit, point, actionnable = false) {
   // Le serveur seul sait ce qui est cliquable (fenêtre créée→courante) :
   // futur ET périodes antérieures à la création de l'habitude.
   if (!point.cliquable) bouton.classList.add('futur');
-  // La case de la période EN COURS n'est plus cliquable : c'est le bouton
-  // « valider » à droite qui la valide. Elle reste affichée (historique).
+  // La case de la période EN COURS fait la même chose que le bouton
+  // « valider » à droite (gestionnaire de clic global) : c'est voulu.
   if (point.actuel) bouton.classList.add('actuel');
   return bouton;
 }
@@ -444,8 +448,10 @@ function ordonnerJoueurs(joueurs, slug) {
 
 function rendre() {
   document.getElementById('date-jour').textContent =
+    // timeZone UTC : la date est construite à midi UTC, l'afficher dans le
+    // fuseau du téléphone la décalerait d'un jour au-delà de UTC+12.
     new Date(`${etat.today}T12:00:00Z`).toLocaleDateString('fr-CH', {
-      weekday: 'long', day: 'numeric', month: 'long'
+      weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC'
     });
 
   rendreLeaderboard();
@@ -729,7 +735,7 @@ function grouperParMois(points) {
 
 function nomDuMois(cle) {
   return new Date(`${cle}-01T12:00:00Z`)
-    .toLocaleDateString('fr-CH', { month: 'long', year: 'numeric' });
+    .toLocaleDateString('fr-CH', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
 function bloqueStat(valeur, label) {
@@ -810,6 +816,23 @@ function rendreHistorique(donnees) {
 
     const grille = document.createElement('div');
     grille.className = 'mois-points';
+    // Quotidienne : colonnes LU..DI, et le 1er jour affiché tombe sous son
+    // jour de semaine (cases vides avant). Une hebdo n'a qu'un point par
+    // semaine : pas de colonnes de jours.
+    if (donnees.type === 'daily') {
+      JOURS.forEach((j) => {
+        const entete = document.createElement('span');
+        entete.className = 'mois-jour';
+        entete.textContent = j;
+        grille.appendChild(entete);
+      });
+      const decalage = (new Date(`${points[0].ref}T12:00:00Z`).getUTCDay() + 6) % 7;
+      for (let i = 0; i < decalage; i++) {
+        const vide = document.createElement('span');
+        vide.className = 'mois-vide';
+        grille.appendChild(vide);
+      }
+    }
     // Une habitude archivée ne se coche plus (le serveur refuse) : cases inertes.
     points.forEach((p) => grille.appendChild(creerPoint(donnees, p, actionnable && !donnees.archived_at)));
 
@@ -840,8 +863,13 @@ function rendreHistorique(donnees) {
       if (!confirm(`Archiver « ${donnees.nom} » ? L'historique est conservé.`)) return;
       try {
         await envoyer(`/api/habits/${donnees.id}/archive`, {});
-        fermerPopup();
         await recharger();
+        // Comme Supprimer : si on venait du profil, y revenir (mis à jour).
+        if (origineHistorique === 'profil' && profilOuvert !== null) {
+          window.ouvrirProfil(profilOuvert);
+        } else {
+          fermerPopup();
+        }
       } catch (err) {
         signaler(err.message);
       }
@@ -948,9 +976,43 @@ function nouvelleVuePopup(vue) {
   return ++jetonPopup;
 }
 
+// Accessibilité clavier : à l'ouverture, le focus entre dans le popup (il
+// restait sinon sur la carte derrière le voile) ; à la fermeture, il revient
+// à l'élément qui l'a ouvert. Tab et Maj+Tab tournent dans le popup.
+const boitePopup = popup.querySelector('.popup-boite');
+let focusAvantPopup = null;
+
+function afficherPopup() {
+  if (popup.classList.contains('cache')) {
+    focusAvantPopup = document.activeElement;
+    popup.classList.remove('cache');
+    boitePopup.focus();
+  }
+}
+
+popup.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const focusables = [...boitePopup.querySelectorAll(
+    'button:not([disabled]), a[href], input, select, textarea'
+  )].filter((el) => el.offsetParent !== null);
+  if (focusables.length === 0) return;
+  const premier = focusables[0];
+  const dernier = focusables[focusables.length - 1];
+  if (e.shiftKey && (document.activeElement === premier || document.activeElement === boitePopup)) {
+    e.preventDefault();
+    dernier.focus();
+  } else if (!e.shiftKey && document.activeElement === dernier) {
+    e.preventDefault();
+    premier.focus();
+  }
+});
+
 function fermerPopup() {
   nouvelleVuePopup(null);
+  const etaitOuvert = !popup.classList.contains('cache');
   popup.classList.add('cache');
+  if (etaitOuvert && focusAvantPopup && document.contains(focusAvantPopup)) focusAvantPopup.focus();
+  focusAvantPopup = null;
   habitOuverte = null;
   profilOuvert = null;
   origineHistorique = null;
@@ -964,7 +1026,7 @@ function menuSuppression(habit) {
   origineHistorique = null;
   habitOuverte = null;
   profilOuvert = null;
-  popup.classList.remove('cache');
+  afficherPopup();
 
   const titre = document.createElement('h2');
   titre.textContent = habit.nom;
@@ -1030,7 +1092,7 @@ function menuJourRate(habitId, ref, dejaGele) {
 
   nouvelleVuePopup('menu');
   popupContenu.textContent = '';
-  popup.classList.remove('cache');
+  afficherPopup();
 
   // Plus aucun gel cette semaine : on ne propose pas un bouton voué au refus.
   const joueur = etat && etat.players.find((p) => p.habits.some((h) => h.id === habitId));
@@ -1090,7 +1152,7 @@ window.ouvrirHistorique = async (habitId, origine = null) => {
   const jeton = nouvelleVuePopup('historique');
   habitOuverte = habitId;
   origineHistorique = origine;
-  popup.classList.remove('cache');
+  afficherPopup();
   popupContenu.textContent = 'Chargement…';
   try {
     const donnees = await api(`/api/history?habit_id=${habitId}`);
@@ -1189,7 +1251,7 @@ window.ouvrirProfil = async (playerId) => {
   profilOuvert = playerId;
   habitOuverte = null;
   origineHistorique = null;
-  popup.classList.remove('cache');
+  afficherPopup();
   popupContenu.textContent = 'Chargement…';
   try {
     const donnees = await api(`/api/profile?player_id=${playerId}`);
